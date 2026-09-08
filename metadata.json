@@ -1,0 +1,6 @@
+{
+  "name": "NOVO",
+  "description": "Personal AI Operating System built incrementally with modular architecture.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
