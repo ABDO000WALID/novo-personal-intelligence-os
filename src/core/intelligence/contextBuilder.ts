@@ -31,10 +31,16 @@ export function buildAIGroundedContext(
   const taskLines =
     criticalTasks.length > 0
       ? criticalTasks
-          .map(
-            (t) =>
-              `  * [${t.completed ? 'x' : ' '}] ${t.title} (${t.priority} priority)${context.overdueTasks.includes(t) ? ' [OVERDUE]' : ''}`
-          )
+          .map((t) => {
+            let goalTag = '';
+            if (t.goalId) {
+              const matchedGoal = (context.goals || []).find((g) => g && g.id === t.goalId);
+              if (matchedGoal && matchedGoal.title) {
+                goalTag = ` [Supports Goal: "${matchedGoal.title}"]`;
+              }
+            }
+            return `  * [${t.completed ? 'x' : ' '}] ${t.title} (${t.priority} priority)${context.overdueTasks.includes(t) ? ' [OVERDUE]' : ''}${goalTag}`;
+          })
           .join('\n')
       : (context.tasks.length === 0 ? '  * INSUFFICIENT DATA: No tasks exist in the database.' : '  * No pending critical tasks.');
 
@@ -65,13 +71,19 @@ export function buildAIGroundedContext(
 
   // 5. Knowledge & Notes
   const notesList = context.recentNotes.slice(0, 10);
+  const knowledgeList = context.recentKnowledge ? context.recentKnowledge.slice(0, 5) : [];
   const noteLines =
     notesList.length > 0
       ? notesList.map((n) => `  * ${n.title}`).join('\n')
       : '  * INSUFFICIENT DATA: No notes exist in the database.';
-
+      
+  const knowledgeLines =
+    knowledgeList.length > 0
+      ? knowledgeList.map((k) => `  * [${k.category.toUpperCase()}] ${k.title}`).join('\n')
+      : '  * INSUFFICIENT DATA: No curated knowledge items.';
+      
   sections.push(
-    `## Knowledge Vault\n- Total Notes: ${context.notesCount}\n${noteLines}`
+    `## Knowledge Vault & Notes\n- Total Notes: ${context.notesCount}\n\nRecent Notes:\n${noteLines}\n\nRecent Curated Knowledge:\n${knowledgeLines}`
   );
 
   // 6. Active Insights

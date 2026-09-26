@@ -1,9 +1,10 @@
-import { useState, FormEvent } from 'react';
+import { useState, useMemo, useEffect, FormEvent } from 'react';
 import { useApp } from '../../core/providers/AppContext';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
-import { useMoney } from './hooks/useMoney';
+import { useMoneyStore } from '../../core/state/moneyStore';
+import { calculateFinancialSummary } from './domain/moneyEngine';
 import { TransactionType } from '../../types/data';
 import {
   Wallet,
@@ -21,7 +22,19 @@ import {
 export function MoneyView() {
   const { language } = useApp();
   const isAr = language === 'ar';
-  const { transactions, totals, addTransaction, deleteTransaction } = useMoney();
+  const status = useMoneyStore(state => state.status);
+  const initialize = useMoneyStore(state => state.initialize);
+  const transactions = useMoneyStore(state => state.transactions);
+  const createTransaction = useMoneyStore(state => state.createTransaction);
+  const deleteTransaction = useMoneyStore(state => state.deleteTransaction);
+  
+  useEffect(() => {
+    if (status === 'idle') {
+      initialize();
+    }
+  }, [status, initialize]);
+
+  const totals = useMemo(() => calculateFinancialSummary(transactions), [transactions]);
 
   const [isAdding, setIsAdding] = useState(false);
   const [type, setType] = useState<TransactionType>('expense');
@@ -34,7 +47,7 @@ export function MoneyView() {
     const numAmount = parseFloat(amount);
     if (isNaN(numAmount) || numAmount <= 0) return;
 
-    addTransaction(type, numAmount, category, description);
+    createTransaction({ type, amount: numAmount, category, description });
     setAmount('');
     setCategory('');
     setDescription('');

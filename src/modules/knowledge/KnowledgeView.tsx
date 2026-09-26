@@ -1,9 +1,9 @@
-import { useState, useMemo, FormEvent, KeyboardEvent } from 'react';
+import { useState, useMemo, useEffect, FormEvent, KeyboardEvent } from 'react';
 import { useApp } from '../../core/providers/AppContext';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
-import { useKnowledge } from './hooks/useKnowledge';
+import { useKnowledgeStore } from '../../core/state/knowledgeStore';
 import {
   KnowledgeCategory,
   KnowledgeImportance,
@@ -121,23 +121,65 @@ export function KnowledgeView() {
   const { language } = useApp();
   const isAr = language === 'ar';
 
-  const {
-    items,
-    filteredItems,
-    pinnedItems,
-    unpinnedItems,
-    searchQuery,
-    setSearchQuery,
-    selectedCategory,
-    setSelectedCategory,
-    selectedImportance,
-    setSelectedImportance,
-    createKnowledge,
-    updateKnowledge,
-    deleteKnowledge,
-    togglePinned,
-    stats,
-  } = useKnowledge();
+  
+
+  const status = useKnowledgeStore(state => state.status);
+  const initialize = useKnowledgeStore(state => state.initialize);
+  
+  useEffect(() => {
+    if (status === 'idle') {
+      initialize();
+    }
+  }, [status, initialize]);
+
+  const items = useKnowledgeStore(state => state.knowledge);
+  const createKnowledge = useKnowledgeStore(state => state.createKnowledge);
+  const updateKnowledge = useKnowledgeStore(state => state.updateKnowledge);
+  const deleteKnowledge = useKnowledgeStore(state => state.deleteKnowledge);
+  const togglePinned = useKnowledgeStore(state => state.togglePinned);
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<KnowledgeCategory | 'all'>('all');
+  const [selectedImportance, setSelectedImportance] = useState<KnowledgeImportance | 'all'>('all');
+
+  const filteredItems = useMemo(() => {
+    return items
+      .filter((item) => {
+        if (selectedCategory !== 'all' && item.category !== selectedCategory) {
+          return false;
+        }
+        if (selectedImportance !== 'all' && item.importance !== selectedImportance) {
+          return false;
+        }
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase().trim();
+          const matchesTitle = item.title.toLowerCase().includes(q);
+          const matchesContent = item.content.toLowerCase().includes(q);
+          const matchesTags = item.tags.some((tag) => tag.toLowerCase().includes(q));
+          if (!matchesTitle && !matchesContent && !matchesTags) {
+            return false;
+          }
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      });
+  }, [items, selectedCategory, selectedImportance, searchQuery]);
+
+  const pinnedItems = useMemo(() => filteredItems.filter((i) => i.pinned), [filteredItems]);
+  const unpinnedItems = useMemo(() => filteredItems.filter((i) => !i.pinned), [filteredItems]);
+
+  const stats = useMemo(() => {
+    return {
+      total: items.length,
+      pinned: items.filter((i) => i.pinned).length,
+      highImportance: items.filter((i) => i.importance === 'high').length,
+    };
+  }, [items]);
+
 
   // Editor states
   const [isEditorOpen, setIsEditorOpen] = useState(false);

@@ -30,3 +30,5 @@ export {
   type AIContextBuilderOptions,
 } from './contextBuilder';
 export * from './useIntelligence';
+export * from './nextActionEngine';
+export * from './attentionEngine';

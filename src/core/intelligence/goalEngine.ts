@@ -1,6 +1,30 @@
-import { Goal } from '../../types/data';
+import { Goal, Task } from '../../types/data';
 import { GoalHealthResult, GoalHealthStatus } from './intelligenceTypes';
 import { isWithinDays } from './dateUtils';
+
+export interface GoalTaskActivity {
+  total: number;
+  completed: number;
+  pending: number;
+}
+
+/**
+ * Pure derived calculation of task activity for a given goal.
+ * Does not mutate any store or database.
+ */
+export function getGoalTaskActivity(goalId: string, tasks: Task[]): GoalTaskActivity {
+  if (!goalId || !Array.isArray(tasks)) {
+    return { total: 0, completed: 0, pending: 0 };
+  }
+  const linkedTasks = tasks.filter((t) => t && t.goalId === goalId);
+  const completed = linkedTasks.filter((t) => Boolean(t.completed)).length;
+  const pending = linkedTasks.length - completed;
+  return {
+    total: linkedTasks.length,
+    completed,
+    pending,
+  };
+}
 
 /**
  * Deterministic Goal Analysis Engine
@@ -45,5 +69,107 @@ export function analyzeGoals(goals: Goal[], now: Date = new Date()): GoalHealthR
     goalsAbove75,
     recentlyUpdatedGoals,
     healthStatus,
+  };
+}
+
+export interface DailyGoalAlignmentResult {
+  todayTaskCount: number;
+  todayGoalTaskCount: number;
+  todayGoalCompletionCount: number;
+  alignmentRate: number; // 0 - 100 percentage
+  primaryGoal: Goal | null;
+  unattendedGoals: Goal[];
+  goalAlignedPriorityTasks: Task[];
+}
+
+function normalizeTargetDate(targetDate: string | Date): string {
+  if (typeof targetDate === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+      return targetDate;
+    }
+    return targetDate.split('T')[0];
+  }
+  const year = targetDate.getFullYear();
+  const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+  const day = String(targetDate.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Deterministic Daily Goal Alignment Engine
+ * Analyzes today's tasks and active goals to evaluate goal-linked execution.
+ * Pure function, zero side-effects, does not mutate any store or object.
+ */
+export function analyzeDailyGoalAlignment(
+  tasks: Task[],
+  goals: Goal[],
+  targetDate: string | Date = new Date()
+): DailyGoalAlignmentResult {
+  const safeTasks = Array.isArray(tasks) ? tasks : [];
+  const safeGoals = Array.isArray(goals) ? goals : [];
+
+  // Active goals: present, has valid id, and not completed (progress < 100)
+  const activeGoals = safeGoals.filter(
+    (g) =>
+      g &&
+      typeof g.id === 'string' &&
+      g.id.trim() !== '' &&
+      (typeof g.progress !== 'number' || g.progress < 100)
+  );
+
+  const activeGoalsMap = new Map<string, Goal>();
+  for (const g of activeGoals) {
+    activeGoalsMap.set(g.id, g);
+  }
+
+  const dateStr = normalizeTargetDate(targetDate);
+  const todayTasks = safeTasks.filter((t) => t && t.date === dateStr);
+  const todayTaskCount = todayTasks.length;
+
+  // A task counts as goal-aligned only if it references a valid active goal
+  const todayGoalTasks = todayTasks.filter(
+    (t) => Boolean(t && t.goalId && activeGoalsMap.has(t.goalId))
+  );
+  const todayGoalTaskCount = todayGoalTasks.length;
+  const todayGoalCompletionCount = todayGoalTasks.filter((t) => Boolean(t.completed)).length;
+
+  const alignmentRate =
+    todayTaskCount > 0 ? Math.round((todayGoalTaskCount / todayTaskCount) * 100) : 0;
+
+  // Count scheduled tasks per active goal
+  const taskCountPerGoal = new Map<string, number>();
+  for (const t of todayGoalTasks) {
+    const gid = t.goalId!;
+    taskCountPerGoal.set(gid, (taskCountPerGoal.get(gid) || 0) + 1);
+  }
+
+  // Primary goal: active goal with greatest number of today's linked tasks.
+  // Ties resolved deterministically by preserving order in activeGoals (count > maxCount).
+  let maxCount = 0;
+  let primaryGoal: Goal | null = null;
+  for (const g of activeGoals) {
+    const count = taskCountPerGoal.get(g.id) || 0;
+    if (count > maxCount) {
+      maxCount = count;
+      primaryGoal = g;
+    }
+  }
+
+  // Unattended goals: active goals with zero tasks scheduled for targetDate
+  const unattendedGoals = activeGoals.filter(
+    (g) => (taskCountPerGoal.get(g.id) || 0) === 0
+  );
+
+  // Goal-aligned priority tasks: small deterministic list of today's goal-linked tasks that are high priority
+  const goalAlignedPriorityTasks = todayGoalTasks.filter((t) => t.priority === 'high');
+
+  return {
+    todayTaskCount,
+    todayGoalTaskCount,
+    todayGoalCompletionCount,
+    alignmentRate,
+    primaryGoal,
+    unattendedGoals,
+    goalAlignedPriorityTasks,
   };
 }

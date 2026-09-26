@@ -133,6 +133,7 @@ export interface Insight {
 export type { NovoScore, ScoreBreakdown } from './scoreEngine';
 export type { DailyBriefing, DailyBriefingTaskStats, DailyBriefingGoalStats, DailyBriefingFocusStats, DailyBriefingMoneyStats } from './briefingEngine';
 export type { WeeklyReview } from './weeklyReviewEngine';
+export type { DailyGoalAlignmentResult } from './goalEngine';
 
 // 8. Daily Overview
 export interface DailyOverview {
@@ -157,6 +158,7 @@ export interface NOVOContext {
   activeGoals: Goal[];
   notesCount: number;
   recentNotes: Note[];
+  recentKnowledge: KnowledgeItem[];
   focusSessions: FocusSession[];
   focusStats: FocusSummary;
   moneySummary: FinanceSummary;

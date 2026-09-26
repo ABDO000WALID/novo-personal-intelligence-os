@@ -1,5 +1,6 @@
-import { storageService, INITIAL_SEEDS, NOVO_STORAGE_EVENT } from './storageService';
-import { STORAGE_KEYS } from './storageKeys';
+import { NOVO_STORAGE_EVENT } from './storageService';
+import { RepositoryFactory } from '../data/RepositoryFactory';
+
 import {
   Note,
   Goal,
@@ -55,35 +56,32 @@ export const backupService = {
   /**
    * Reads all current records from storage.
    */
-  getCurrentData(): NovoBackupData {
-    return {
-      notes: storageService.getItem<Note[]>(STORAGE_KEYS.NOTES, INITIAL_SEEDS.notes()),
-      goals: storageService.getItem<Goal[]>(STORAGE_KEYS.GOALS, INITIAL_SEEDS.goals()),
-      tasks: storageService.getItem<Task[]>(STORAGE_KEYS.TASKS, INITIAL_SEEDS.tasks()),
-      focusSessions: storageService.getItem<FocusSession[]>(
-        STORAGE_KEYS.FOCUS_SESSIONS,
-        INITIAL_SEEDS.focusSessions()
-      ),
-      transactions: storageService.getItem<Transaction[]>(
-        STORAGE_KEYS.MONEY_ENTRIES,
-        INITIAL_SEEDS.transactions()
-      ),
-      conversations: storageService.getItem<Conversation[]>(
-        STORAGE_KEYS.CONVERSATIONS,
-        INITIAL_SEEDS.conversations()
-      ),
-      knowledgeItems: storageService.getItem<KnowledgeItem[]>(
-        STORAGE_KEYS.KNOWLEDGE,
-        INITIAL_SEEDS.knowledge()
-      ),
-    };
+  async getCurrentData(): Promise<NovoBackupData> {
+    const [
+      notes,
+      goals,
+      tasks,
+      focusSessions,
+      transactions,
+      conversations,
+      knowledgeItems
+    ] = await Promise.all([
+      RepositoryFactory.getNoteRepository().getAll(),
+      RepositoryFactory.getGoalRepository().getAll(),
+      RepositoryFactory.getTaskRepository().getAll(),
+      RepositoryFactory.getFocusRepository().getSessions(),
+      RepositoryFactory.getMoneyRepository().getAll(),
+      RepositoryFactory.getChatRepository().getConversations(),
+      RepositoryFactory.getKnowledgeRepository().getAll(),
+    ]);
+    return { notes, goals, tasks, focusSessions, transactions, conversations, knowledgeItems };
   },
 
   /**
    * Generates storage statistics and estimated size.
    */
-  getStorageStats(): BackupStats {
-    const data = this.getCurrentData();
+  async getStorageStats(): Promise<BackupStats> {
+    const data = await this.getCurrentData();
     const serialized = JSON.stringify(data);
     const sizeKb = Math.round((new Blob([serialized]).size / 1024) * 10) / 10;
 
@@ -118,27 +116,27 @@ export const backupService = {
   /**
    * Generates a complete NovoBackup object representation.
    */
-  getBackupObject(): NovoBackup {
+  async getBackupObject(): Promise<NovoBackup> {
     return {
       version: 1,
       exportedAt: new Date().toISOString(),
       source: 'NOVO Personal Intelligence Workspace',
-      data: this.getCurrentData(),
+      data: await this.getCurrentData(),
     };
   },
 
   /**
    * Generates a serialized JSON string of the complete workspace backup.
    */
-  generateBackupJson(): string {
-    return JSON.stringify(this.getBackupObject(), null, 2);
+  async generateBackupJson(): Promise<string> {
+    return JSON.stringify(await this.getBackupObject(), null, 2);
   },
 
   /**
    * Exports full NOVO backup file and triggers client-side download.
    */
-  exportBackup(): void {
-    const jsonString = this.generateBackupJson();
+  async exportBackup(): Promise<void> {
+    const jsonString = await this.generateBackupJson();
 
     if (typeof document === 'undefined' || typeof window === 'undefined') {
       return;
@@ -266,30 +264,30 @@ export const backupService = {
    * Imports and overwrites current local storage data with the validated backup.
    * Dispatches instant event for React hooks to refresh without reload.
    */
-  importBackup(backup: NovoBackup): boolean {
+  async importBackup(backup: NovoBackup): Promise<boolean> {
     try {
       const data = backup.data;
 
       if (Array.isArray(data.notes)) {
-        storageService.setItem(STORAGE_KEYS.NOTES, data.notes);
+        await RepositoryFactory.getNoteRepository().saveAll(data.notes);
       }
       if (Array.isArray(data.goals)) {
-        storageService.setItem(STORAGE_KEYS.GOALS, data.goals);
+        await RepositoryFactory.getGoalRepository().saveAll(data.goals);
       }
       if (Array.isArray(data.tasks)) {
-        storageService.setItem(STORAGE_KEYS.TASKS, data.tasks);
+        await RepositoryFactory.getTaskRepository().saveAll(data.tasks);
       }
       if (Array.isArray(data.focusSessions)) {
-        storageService.setItem(STORAGE_KEYS.FOCUS_SESSIONS, data.focusSessions);
+        await RepositoryFactory.getFocusRepository().saveSessions(data.focusSessions);
       }
       if (Array.isArray(data.transactions)) {
-        storageService.setItem(STORAGE_KEYS.MONEY_ENTRIES, data.transactions);
+        await RepositoryFactory.getMoneyRepository().saveAll(data.transactions);
       }
       if (Array.isArray(data.conversations)) {
-        storageService.setItem(STORAGE_KEYS.CONVERSATIONS, data.conversations);
+        await RepositoryFactory.getChatRepository().saveConversations(data.conversations);
       }
       if (Array.isArray(data.knowledgeItems)) {
-        storageService.setItem(STORAGE_KEYS.KNOWLEDGE, data.knowledgeItems);
+        await RepositoryFactory.getKnowledgeRepository().saveAll(data.knowledgeItems);
       }
 
       // Dispatch global window event

@@ -1,3 +1,4 @@
+import { useFocusStore } from '../state/focusStore';
 import {
   Task,
   Goal,
@@ -27,8 +28,14 @@ import { analyzeNotesAndKnowledge } from './notesEngine';
 import { calculateNovoScore } from './scoreEngine';
 import { generateSmartInsights } from './insightEngine';
 import { generateActivityTimeline } from './activityEngine';
-import { storageService, INITIAL_SEEDS } from '../storage/storageService';
-import { STORAGE_KEYS } from '../storage/storageKeys';
+import { RepositoryFactory } from '../data/RepositoryFactory';
+import { useTaskStore } from '../state/taskStore';
+import { useKnowledgeStore } from '../state/knowledgeStore';
+import { useGoalStore } from '../state/goalStore';
+import { useMoneyStore } from '../state/moneyStore';
+import { useNoteStore } from '../state/noteStore';
+import { useChatStore } from '../state/chatStore';
+
 
 export interface ContextSourceData {
   tasks: Task[];
@@ -54,6 +61,11 @@ export function buildNOVOContext(
 ): NOVOContext {
   const todayStr = getTodayString(now);
 
+  // AI Bounding: We only send the 50 most recently updated knowledge items to prevent token explosion.
+  const boundedKnowledge = [...(data.knowledgeItems || [])]
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 50);
+
   // Analyze individual domains deterministically
   const productivitySummary: ProductivitySummary = analyzeProductivity(data.tasks, now);
   const goalHealth: GoalHealthResult = analyzeGoals(data.goals, now);
@@ -61,7 +73,7 @@ export function buildNOVOContext(
   const financeSummary: FinanceSummary = analyzeFinance(data.transactions, now);
   const knowledgeSummary: KnowledgeSummary = analyzeNotesAndKnowledge(
     data.notes,
-    data.knowledgeItems || [],
+    boundedKnowledge,
     now
   );
 
@@ -91,7 +103,7 @@ export function buildNOVOContext(
       sessions: data.sessions,
       transactions: data.transactions,
       conversations: data.conversations,
-      knowledgeItems: data.knowledgeItems,
+      knowledgeItems: boundedKnowledge,
     },
     15
   );
@@ -124,6 +136,7 @@ export function buildNOVOContext(
     activeGoals,
     notesCount: data.notes.length,
     recentNotes,
+    recentKnowledge: boundedKnowledge.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, 5),
     focusSessions: data.sessions,
     focusStats: focusSummary,
     moneySummary: financeSummary,
@@ -145,34 +158,35 @@ export function buildNOVOContext(
  * Pure business logic function callable outside React component lifecycles.
  */
 export function getNOVOContext(now: Date = new Date()): NOVOContext {
-  const tasks = storageService.getItem<Task[]>(
-    STORAGE_KEYS.TASKS,
-    INITIAL_SEEDS.tasks()
-  );
-  const goals = storageService.getItem<Goal[]>(
-    STORAGE_KEYS.GOALS,
-    INITIAL_SEEDS.goals()
-  );
-  const notes = storageService.getItem<Note[]>(
-    STORAGE_KEYS.NOTES,
-    INITIAL_SEEDS.notes()
-  );
-  const sessions = storageService.getItem<FocusSession[]>(
-    STORAGE_KEYS.FOCUS_SESSIONS,
-    INITIAL_SEEDS.focusSessions()
-  );
-  const transactions = storageService.getItem<Transaction[]>(
-    STORAGE_KEYS.MONEY_ENTRIES,
-    INITIAL_SEEDS.transactions()
-  );
-  const conversations = storageService.getItem<Conversation[]>(
-    STORAGE_KEYS.CONVERSATIONS,
-    INITIAL_SEEDS.conversations()
-  );
-  const knowledgeItems = storageService.getItem<KnowledgeItem[]>(
-    STORAGE_KEYS.KNOWLEDGE,
-    INITIAL_SEEDS.knowledge()
-  );
+  if (useTaskStore.getState().status === 'idle') {
+    useTaskStore.getState().initialize();
+  }
+  const tasks = useTaskStore.getState().tasks;
+  if (useGoalStore.getState().status === 'idle') {
+    useGoalStore.getState().initialize();
+  }
+  const goals = useGoalStore.getState().goals;
+  if (useNoteStore.getState().status === 'idle') {
+    useNoteStore.getState().initialize();
+  }
+  const rawNotes = useNoteStore.getState().notes;
+  const notes = [...rawNotes].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, 10);
+  if (useFocusStore.getState().status === 'idle') { useFocusStore.getState().initialize(); } const sessions = useFocusStore.getState().sessions;
+  if (useMoneyStore.getState().status === 'idle') {
+    useMoneyStore.getState().initialize();
+  }
+  const transactions = useMoneyStore.getState().transactions;
+    if (useChatStore.getState().status === 'idle') {
+    useChatStore.getState().initialize();
+  }
+  const conversations = useChatStore.getState().conversations;
+  
+  if (useKnowledgeStore.getState().status === 'idle') {
+    useKnowledgeStore.getState().initialize();
+  }
+  const rawKnowledge = useKnowledgeStore.getState().knowledge;
+  const knowledgeItems = rawKnowledge;
+
 
   return buildNOVOContext(
     {

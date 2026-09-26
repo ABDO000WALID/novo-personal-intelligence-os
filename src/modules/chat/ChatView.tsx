@@ -1,9 +1,12 @@
-import { useState, useRef, useEffect, FormEvent, KeyboardEvent } from 'react';
+import React, { useState, useRef, useEffect, FormEvent, KeyboardEvent } from 'react';
 import { useApp } from '../../core/providers/AppContext';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
-import { useChat } from './hooks/useChat';
+import { useChatStore } from '../../core/state/chatStore';
+import { useAuthStore } from '../../core/auth/authStore';
+import { AuthLifecycle } from '../../core/auth/authLifecycle';
+import { useMemo } from 'react';
 import { useChatOrchestrator } from './hooks/useChatOrchestrator';
 import { useIntelligence } from '../../core/intelligence/useIntelligence';
 import Markdown from 'react-markdown';
@@ -27,31 +30,50 @@ import {
   AlertCircle,
 } from 'lucide-react';
 
+import { LiveChatSurface } from './components/LiveChatSurface';
+import { TaskProposalCard } from './components/TaskProposalCard';
+import { GoalProgressProposalCard } from './components/GoalProgressProposalCard';
+
 export function ChatView() {
   const { language, setActiveRoute } = useApp();
   const isAr = language === 'ar';
+  
+  const [chatMode, setChatMode] = useState<'rest' | 'live'>('rest');
+  
   const { getContext } = useIntelligence();
 
-  const {
-    conversations,
-    activeConversation,
-    selectConversation,
-    createConversation,
-    sendMessage,
-    renameConversation,
-    deleteConversation,
-  } = useChat();
+  const status = useChatStore((state) => state.status);
+  const initialize = useChatStore((state) => state.initialize);
+  const conversations = useChatStore((state) => state.conversations);
+  const activeConversationId = useChatStore((state) => state.activeConversationId);
+  const selectConversation = useChatStore((state) => state.selectConversation);
+  const createConversation = useChatStore((state) => state.createConversation);
+  const sendMessage = useChatStore((state) => state.sendMessage);
+  const renameConversation = useChatStore((state) => state.renameConversation);
+  const deleteConversation = useChatStore((state) => state.deleteConversation);
+
+  useEffect(() => {
+    if (status === 'idle') {
+      initialize();
+    }
+  }, [status, initialize]);
+
+  const activeConversation = useMemo(() => {
+    return conversations.find((c) => c.id === activeConversationId) || null;
+  }, [conversations, activeConversationId]);
 
   const {
     executionState,
     error,
     lastCommandFeedback,
+    activeProposal,
+    activeGoalProgressProposal,
     submitMessage,
     retryLastMessage,
+    clearProposal,
+    clearGoalProgressProposal,
     clearError,
   } = useChatOrchestrator({
-    sendMessage,
-    activeConversation,
     getContext,
     onCommandNavigate: (route) => setActiveRoute(route),
     language,
@@ -62,7 +84,41 @@ export function ChatView() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [editingConvId, setEditingConvId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
+  const [actionError, setActionError] = useState<{ ar: string; en: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const handleCreateConversation = async () => {
+    setActionError(null);
+    clearError();
+    const authUser = useAuthStore.getState().user;
+    const authLoading = useAuthStore.getState().loading;
+    const uid = AuthLifecycle.getUid();
+
+    if (authLoading) {
+      setActionError({
+        ar: 'جاري تهيئة جلسة المستخدم. يرجى المحاولة بعد لحظات.',
+        en: 'Authentication is still initializing. Please try again in a moment.',
+      });
+      return;
+    }
+
+    if (!authUser || !uid) {
+      setActionError({
+        ar: 'بدء محادثة جديدة يتطلب تسجيل الدخول.',
+        en: 'Starting a new conversation requires an authenticated user.',
+      });
+      return;
+    }
+
+    try {
+      await createConversation();
+    } catch (err: any) {
+      setActionError({
+        ar: 'فشل إنشاء محادثة جديدة.',
+        en: err?.message || 'Failed to create conversation.',
+      });
+    }
+  };
 
   // Intelligent auto-scroll
   useEffect(() => {
@@ -84,7 +140,7 @@ export function ChatView() {
 
   const handleSend = async (e?: FormEvent) => {
     e?.preventDefault();
-    if (!inputMessage.trim() || executionState === 'generating') return;
+    if (!inputMessage.trim() || executionState !== 'idle') return;
     const msg = inputMessage;
     setInputMessage('');
     await submitMessage(msg);
@@ -93,7 +149,9 @@ export function ChatView() {
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      if (executionState === 'idle') {
+        handleSend();
+      }
     }
   };
 
@@ -176,14 +234,42 @@ export function ChatView() {
           </div>
         </div>
 
-        <Button
-          onClick={() => createConversation()}
-          size="sm"
-          className="hidden md:flex items-center gap-1.5 shrink-0"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>{isAr ? 'محادثة جديدة' : 'New Chat'}</span>
-        </Button>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
+            <button
+              type="button"
+              onClick={() => setChatMode('rest')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                chatMode === 'rest'
+                  ? 'bg-zinc-800 text-zinc-100 shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+              }`}
+            >
+              {isAr ? 'قياسي' : 'Standard'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setChatMode('live')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 ${
+                chatMode === 'live'
+                  ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-900/50 shadow-sm'
+                  : 'text-zinc-400 hover:text-emerald-400/80 hover:bg-zinc-800/50'
+              }`}
+            >
+              <div className={`w-1.5 h-1.5 rounded-full ${chatMode === 'live' ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
+              {isAr ? 'مباشر' : 'Live'}
+            </button>
+          </div>
+          
+          <Button
+            onClick={handleCreateConversation}
+            size="sm"
+            className="hidden md:flex items-center gap-1.5 shrink-0"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>{isAr ? 'محادثة جديدة' : 'New Chat'}</span>
+          </Button>
+        </div>
       </div>
 
       
@@ -204,7 +290,7 @@ export function ChatView() {
             
             <Button
               onClick={() => {
-                createConversation();
+                handleCreateConversation();
                 setIsMobileHistoryOpen(false);
               }}
               size="sm"
@@ -397,9 +483,12 @@ export function ChatView() {
         </div>
 
         {/* Right Main Column: Active Conversation Messages & Input */}
-        <div className="flex-1 flex flex-col min-h-0 min-w-0">
-          {/* Messages Stage */}
-          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto space-y-4 py-3 px-1 pe-2 scroll-smooth">
+        {chatMode === 'live' ? (
+          <LiveChatSurface />
+        ) : (
+          <div className="flex-1 flex flex-col min-h-0 min-w-0">
+            {/* Messages Stage */}
+            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto space-y-4 py-3 px-1 pe-2 scroll-smooth">
 
             {!activeConversation || activeConversation.messages.length === 0 ? (
               <div className="h-full flex flex-col justify-center items-center py-6 text-center space-y-6">
@@ -454,69 +543,160 @@ export function ChatView() {
               </div>
             ) : (
               <div className="space-y-3">
-                {activeConversation.messages.map((msg) => {
+                {activeConversation.messages.map((msg, index) => {
                   const isUser = msg.role === 'user';
+                  const isLastMessage = index === activeConversation.messages.length - 1;
+
+                  const attachTaskProposal =
+                    activeProposal &&
+                    (activeProposal.originatingMessageId === msg.id ||
+                      (!activeProposal.originatingMessageId &&
+                        isUser &&
+                        !activeConversation.messages.some(
+                          (m) => m.id === activeProposal.originatingMessageId
+                        ) &&
+                        isLastMessage));
+
+                  const attachGoalProgressProposal =
+                    activeGoalProgressProposal &&
+                    (activeGoalProgressProposal.originatingMessageId === msg.id ||
+                      (!activeGoalProgressProposal.originatingMessageId &&
+                        isUser &&
+                        !activeConversation.messages.some(
+                          (m) => m.id === activeGoalProgressProposal.originatingMessageId
+                        ) &&
+                        isLastMessage));
+
                   return (
-                    <div
-                      key={msg.id}
-                      className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
-                    >
+                    <React.Fragment key={msg.id}>
                       <div
-                        className={`max-w-xl p-3.5 rounded-2xl space-y-1 ${
-                          isUser
-                            ? 'bg-gradient-to-br from-violet-600 to-violet-700 text-white rounded-te-xs shadow-md shadow-violet-950/50'
-                            : msg.role === 'system'
-                            ? 'bg-rose-950/50 border border-rose-800/60 text-rose-300 rounded-ts-xs'
-                            : 'bg-zinc-850 border border-zinc-700/60 text-zinc-100 rounded-ts-xs shadow-md shadow-black/40'
-                        }`}
+                        className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
                       >
-                        {isUser ? (
-                          <p className="text-xs md:text-sm leading-relaxed whitespace-pre-wrap">
-                            {msg.content}
-                          </p>
-                        ) : msg.role === 'system' ? (
-                          <div className="flex flex-col gap-2">
-                            <div className="flex items-center gap-2">
-                              <AlertCircle className="w-4 h-4 shrink-0" />
-                              <span className="text-xs md:text-sm leading-relaxed whitespace-pre-wrap">
-                                {(() => {
-                                  try {
-                                    const parsed = JSON.parse(msg.content);
-                                    return isAr ? (parsed.messageAr || parsed.message) : parsed.message;
-                                  } catch (e) {
-                                    return msg.content;
-                                  }
-                                })()}
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => retryLastMessage()}
-                              className="self-start flex items-center gap-1.5 px-3 py-1.5 mt-1 rounded bg-rose-900/60 hover:bg-rose-800 transition-colors text-[11px]"
-                            >
-                              <RotateCw className="w-3.5 h-3.5" />
-                              <span>{isAr ? 'إعادة المحاولة' : 'Retry'}</span>
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="text-xs md:text-sm leading-relaxed whitespace-pre-wrap markdown-body prose prose-invert prose-sm max-w-none prose-p:leading-relaxed prose-pre:bg-zinc-900 prose-pre:border prose-pre:border-zinc-800">
-                            <Markdown remarkPlugins={[remarkGfm]}>{msg.content}</Markdown>
-                          </div>
-                        )}
-                        <span
-                          className={`text-[10px] font-mono block ${
-                            isUser ? 'text-violet-200/70 text-end' : 'text-zinc-500 text-start'
+                        <div
+                          className={`max-w-xl p-3.5 rounded-2xl space-y-1 ${
+                            isUser
+                              ? 'bg-gradient-to-br from-violet-600 to-violet-700 text-white rounded-te-xs shadow-md shadow-violet-950/50'
+                              : msg.role === 'system'
+                              ? 'bg-rose-950/50 border border-rose-800/60 text-rose-300 rounded-ts-xs'
+                              : 'bg-zinc-850 border border-zinc-700/60 text-zinc-100 rounded-ts-xs shadow-md shadow-black/40'
                           }`}
                         >
-                          {new Date(msg.createdAt).toLocaleTimeString(isAr ? 'ar-SA' : 'en-US', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </span>
+                          {isUser ? (
+                            <p className="text-xs md:text-sm leading-relaxed whitespace-pre-wrap">
+                              {msg.content}
+                            </p>
+                          ) : msg.role === 'system' ? (
+                            <div className="flex flex-col gap-2">
+                              <div className="flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4 shrink-0" />
+                                <span className="text-xs md:text-sm leading-relaxed whitespace-pre-wrap">
+                                  {(() => {
+                                    try {
+                                      const parsed = JSON.parse(msg.content);
+                                      return isAr ? (parsed.messageAr || parsed.message) : parsed.message;
+                                    } catch (e) {
+                                      return msg.content;
+                                    }
+                                  })()}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => retryLastMessage()}
+                                className="self-start flex items-center gap-1.5 px-3 py-1.5 mt-1 rounded bg-rose-900/60 hover:bg-rose-800 transition-colors text-[11px]"
+                              >
+                                <RotateCw className="w-3.5 h-3.5" />
+                                <span>{isAr ? 'إعادة المحاولة' : 'Retry'}</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="text-xs md:text-sm leading-relaxed whitespace-pre-wrap markdown-body prose prose-invert prose-sm max-w-none prose-p:leading-relaxed prose-pre:bg-zinc-900 prose-pre:border prose-pre:border-zinc-800">
+                              <Markdown remarkPlugins={[remarkGfm]}>{msg.content}</Markdown>
+                            </div>
+                          )}
+                          <span
+                            className={`text-[10px] font-mono block ${
+                              isUser ? 'text-violet-200/70 text-end' : 'text-zinc-500 text-start'
+                            }`}
+                          >
+                            {new Date(msg.createdAt).toLocaleTimeString(isAr ? 'ar-SA' : 'en-US', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        </div>
                       </div>
-                    </div>
+
+                      {/* Active Task Creation Proposal Anchored to originating message */}
+                      {attachTaskProposal && (
+                        <div className="flex justify-start my-2 w-full max-w-lg">
+                          <div className="w-full">
+                            <TaskProposalCard
+                              proposal={activeProposal}
+                              language={language}
+                              onResolved={() => {
+                                // Allow the resolved badge (Confirmed/Cancelled) to remain visible in stream
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Active Goal Progress Proposal Anchored to originating message */}
+                      {attachGoalProgressProposal && (
+                        <div className="flex justify-start my-2 w-full max-w-lg">
+                          <div className="w-full">
+                            <GoalProgressProposalCard
+                              proposal={activeGoalProgressProposal}
+                              language={language}
+                              onResolved={() => {
+                                // Allow the resolved badge (Confirmed/Cancelled) to remain visible in stream
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </React.Fragment>
                   );
                 })}
+
+                {/* Fallback for unanchored proposals if originating message is not in view list */}
+                {activeProposal &&
+                  !activeConversation.messages.some(
+                    (m) =>
+                      activeProposal.originatingMessageId === m.id ||
+                      (!activeProposal.originatingMessageId &&
+                        m === activeConversation.messages[activeConversation.messages.length - 1])
+                  ) && (
+                    <div className="flex justify-start my-2 w-full max-w-lg">
+                      <div className="w-full">
+                        <TaskProposalCard
+                          proposal={activeProposal}
+                          language={language}
+                          onResolved={() => {}}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                {activeGoalProgressProposal &&
+                  !activeConversation.messages.some(
+                    (m) =>
+                      activeGoalProgressProposal.originatingMessageId === m.id ||
+                      (!activeGoalProgressProposal.originatingMessageId &&
+                        m === activeConversation.messages[activeConversation.messages.length - 1])
+                  ) && (
+                    <div className="flex justify-start my-2 w-full max-w-lg">
+                      <div className="w-full">
+                        <GoalProgressProposalCard
+                          proposal={activeGoalProgressProposal}
+                          language={language}
+                          onResolved={() => {}}
+                        />
+                      </div>
+                    </div>
+                  )}
+
                 {executionState === 'generating' && (
                   <div className="flex justify-start">
                     <div className="flex items-center gap-2.5 p-3 rounded-2xl rounded-ts-xs bg-zinc-850 border border-zinc-700/60 text-zinc-300 shadow-md shadow-black/40 text-xs">
@@ -534,21 +714,25 @@ export function ChatView() {
 
           {/* Command Feedback Pill */}
           {lastCommandFeedback && (
-            <div className="flex items-center gap-2 py-1.5 px-3 rounded-lg bg-emerald-950/40 border border-emerald-800/60 text-[11px] text-emerald-300 mb-2">
-              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span>{isAr ? lastCommandFeedback.ar : lastCommandFeedback.en}</span>
+            <div className="flex items-start gap-2 py-2 px-3 rounded-lg bg-emerald-950/40 border border-emerald-800/60 text-xs text-emerald-300 mb-2 whitespace-pre-wrap leading-relaxed shadow-sm">
+              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+              <div className="flex-1">{isAr ? lastCommandFeedback.ar : lastCommandFeedback.en}</div>
             </div>
           )}
 
           {/* Error Banner with Retry */}
-          {error && (
+          {(error || actionError) && (
             <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-rose-950/50 border border-rose-800/60 text-xs text-rose-300 mb-2">
               <div className="flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                <span>{isAr ? error.messageAr || error.message : error.message}</span>
+                <span>
+                  {actionError
+                    ? (isAr ? actionError.ar : actionError.en)
+                    : (isAr ? error?.messageAr || error?.message : error?.message)}
+                </span>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                {error.retryable && (
+                {error?.retryable && (
                   <button
                     type="button"
                     onClick={() => retryLastMessage()}
@@ -560,7 +744,10 @@ export function ChatView() {
                 )}
                 <button
                   type="button"
-                  onClick={clearError}
+                  onClick={() => {
+                    clearError();
+                    setActionError(null);
+                  }}
                   className="p-1 text-rose-400 hover:text-rose-200"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -586,13 +773,16 @@ export function ChatView() {
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
                 onKeyDown={handleKeyDown}
+                disabled={executionState !== 'idle'}
                 placeholder={
-                  isAr
-                    ? 'اكتب رسالتك، فكرتك، أو أمرك هنا واضغط Enter للإرسال...'
-                    : 'Type your message, thought, or prompt here and hit Enter...'
+                  executionState !== 'idle'
+                    ? (isAr ? 'جاري المعالجة، يرجى الانتظار...' : 'Processing, please wait...')
+                    : (isAr
+                      ? 'اكتب رسالتك، فكرتك، أو أمرك هنا واضغط Enter للإرسال...'
+                      : 'Type your message, thought, or prompt here and hit Enter...')
                 }
                 rows={2}
-                className="w-full bg-transparent resize-none border-0 text-xs md:text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none leading-relaxed"
+                className="w-full bg-transparent resize-none border-0 text-xs md:text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
               />
 
               <div className="flex items-center justify-between pt-1 border-t border-zinc-800/60 text-xs">
@@ -603,7 +793,7 @@ export function ChatView() {
                 <Button
                   type="submit"
                   size="sm"
-                  disabled={!inputMessage.trim()}
+                  disabled={!inputMessage.trim() || executionState !== 'idle'}
                   className="px-3 py-1.5"
                 >
                   <Send className="w-3.5 h-3.5 me-1" />
@@ -613,6 +803,7 @@ export function ChatView() {
             </div>
           </form>
         </div>
+        )}
       </div>
     </div>
   );

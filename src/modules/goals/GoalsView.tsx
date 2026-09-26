@@ -1,9 +1,13 @@
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
 import { useApp } from '../../core/providers/AppContext';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
-import { useGoals } from './hooks/useGoals';
+import { useGoalStore } from '../../core/state/goalStore';
+import { useTaskStore } from '../../core/state/taskStore';
+import { useFocusStore } from '../../core/state/focusStore';
+import { getGoalTaskActivity } from '../../core/intelligence/goalEngine';
+import { calculateGoalPacing } from '../../core/intelligence/goalVelocityEngine';
 import {
   Target,
   Plus,
@@ -14,12 +18,46 @@ import {
   Edit2,
   X,
   Check,
+  CheckSquare,
+  Clock,
+  Gauge,
+  Activity,
 } from 'lucide-react';
 
 export function GoalsView() {
   const { language } = useApp();
   const isAr = language === 'ar';
-  const { goals, createGoal, updateGoal, updateProgress, deleteGoal } = useGoals();
+  const status = useGoalStore(state => state.status);
+  const initialize = useGoalStore(state => state.initialize);
+  useEffect(() => {
+    if (status === 'idle') {
+      initialize();
+    }
+  }, [status, initialize]);
+
+  const tasks = useTaskStore(state => state.tasks);
+  const taskStatus = useTaskStore(state => state.status);
+  const initializeTasks = useTaskStore(state => state.initialize);
+  useEffect(() => {
+    if (taskStatus === 'idle') {
+      initializeTasks();
+    }
+  }, [taskStatus, initializeTasks]);
+
+  const focusSessions = useFocusStore(state => state.sessions);
+  const focusStatus = useFocusStore(state => state.status);
+  const initializeFocus = useFocusStore(state => state.initialize);
+  useEffect(() => {
+    if (focusStatus === 'idle') {
+      initializeFocus();
+    }
+  }, [focusStatus, initializeFocus]);
+
+  const goals = useGoalStore(state => state.goals);
+  const createGoal = useGoalStore(state => state.createGoal);
+  const updateGoal = useGoalStore(state => state.updateGoal);
+  const updateProgress = useGoalStore(state => state.updateProgress);
+  const deleteGoal = useGoalStore(state => state.deleteGoal);
 
   const [isCreating, setIsCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -219,6 +257,24 @@ export function GoalsView() {
           goals.map((goal) => {
             const isEditing = editingId === goal.id;
             const isCompleted = goal.progress >= 100;
+            const activity = getGoalTaskActivity(goal.id, tasks);
+            const pacing = calculateGoalPacing(goal, tasks, focusSessions, new Date());
+
+            const getActivityBadgeStyle = (state: string) => {
+              switch (state) {
+                case 'Active':
+                  return 'bg-emerald-950/40 text-emerald-300 border-emerald-700/40';
+                case 'Steady':
+                  return 'bg-blue-950/40 text-blue-300 border-blue-700/40';
+                case 'Pacing Deficit':
+                  return 'bg-amber-950/40 text-amber-300 border-amber-700/40';
+                case 'Dormant / Stalled':
+                  return 'bg-rose-950/40 text-rose-300 border-rose-700/40';
+                case 'No Execution Data':
+                default:
+                  return 'bg-zinc-800/80 text-zinc-400 border-zinc-700/60';
+              }
+            };
 
             return (
               <Card
@@ -283,6 +339,107 @@ export function GoalsView() {
                             {goal.description}
                           </p>
                         )}
+                        {/* Linked Tasks Activity Indicator */}
+                        <div className="flex items-center gap-2 pt-1" data-testid={`goal-task-activity-${goal.id}`}>
+                          {activity.total > 0 ? (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-zinc-800/80 border border-zinc-700/60 font-mono text-[10px] text-zinc-300">
+                              <CheckSquare className="w-3 h-3 text-violet-400" />
+                              <span>
+                                {isAr
+                                  ? `${activity.completed}/${activity.total} مهام مكتملة`
+                                  : `${activity.completed}/${activity.total} tasks completed`}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-zinc-500 font-mono">
+                              {isAr ? '0 مهام مرتبطة' : '0 linked tasks'}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Lightweight Structural Pacing Row (Gate 17.5A) */}
+                        <div
+                          className="flex flex-wrap items-center gap-2 pt-2 text-[10px]"
+                          data-testid={`goal-pacing-${goal.id}`}
+                        >
+                          {/* Activity State Badge */}
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border font-medium ${getActivityBadgeStyle(
+                              pacing.activityState
+                            )}`}
+                          >
+                            <Activity className="w-2.5 h-2.5" />
+                            <span>
+                              {isAr
+                                ? pacing.activityState === 'Active'
+                                  ? 'نشط'
+                                  : pacing.activityState === 'Steady'
+                                  ? 'مستقر'
+                                  : pacing.activityState === 'Pacing Deficit'
+                                  ? 'تأخر في الإنجاز'
+                                  : pacing.activityState === 'Dormant / Stalled'
+                                  ? 'راكد / غير مفعل'
+                                  : 'لا توجد بيانات تنفيذ'
+                                : pacing.activityState}
+                            </span>
+                          </span>
+
+                          {/* Lifetime Pace */}
+                          <span
+                            className="inline-flex items-center gap-1 text-zinc-400 font-mono bg-zinc-950/60 px-2 py-0.5 rounded border border-zinc-800/60"
+                            title={
+                              isAr
+                                ? 'متوسط وتيرة التقدم على مدار عمر الهدف (% في اليوم)'
+                                : 'Lifetime progress pace (% points per day since creation)'
+                            }
+                          >
+                            <Gauge className="w-2.5 h-2.5 text-violet-400" />
+                            <span>
+                              {isAr ? 'وتيرة العمر:' : 'Lifetime Pace:'}{' '}
+                              <strong className="text-zinc-200">{pacing.lifetimePace}%/d</strong>
+                            </span>
+                          </span>
+
+                          {/* Execution Completion Ratio */}
+                          <span
+                            className="inline-flex items-center gap-1 text-zinc-400 font-mono bg-zinc-950/60 px-2 py-0.5 rounded border border-zinc-800/60"
+                            title={
+                              isAr
+                                ? 'نسبة إنجاز المهام المرتبطة بالهدف'
+                                : 'Execution completion ratio of linked tasks'
+                            }
+                          >
+                            <Check className="w-2.5 h-2.5 text-emerald-400" />
+                            <span>
+                              {isAr ? 'نسبة الإنجاز:' : 'Exec Ratio:'}{' '}
+                              <strong className="text-zinc-200">
+                                {pacing.executionCompletionRatio === 'no_data'
+                                  ? isAr
+                                    ? 'غير متوفر'
+                                    : 'No data'
+                                  : `${pacing.executionCompletionRatio}%`}
+                              </strong>
+                            </span>
+                          </span>
+
+                          {/* Focus Investment */}
+                          {pacing.focusMinutes > 0 && (
+                            <span
+                              className="inline-flex items-center gap-1 text-zinc-400 font-mono bg-zinc-950/60 px-2 py-0.5 rounded border border-zinc-800/60"
+                              title={
+                                isAr
+                                  ? 'إجمالي دقائق التركيز المسجلة لهذا الهدف'
+                                  : 'Total focus minutes logged for this goal'
+                              }
+                            >
+                              <Clock className="w-2.5 h-2.5 text-amber-400" />
+                              <span>
+                                {isAr ? 'التركيز:' : 'Focus:'}{' '}
+                                <strong className="text-zinc-200">{pacing.focusMinutes}m</strong>
+                              </span>
+                            </span>
+                          )}
+                        </div>
                       </>
                     )}
                   </div>

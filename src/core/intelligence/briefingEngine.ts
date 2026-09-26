@@ -5,6 +5,7 @@ import {
   FinanceSummary,
   KnowledgeSummary,
 } from './intelligenceTypes';
+import { DailyGoalAlignmentResult } from './goalEngine';
 
 export interface DailyBriefingTaskStats {
   remainingImportant: number;
@@ -40,6 +41,7 @@ export interface DailyBriefing {
   moneyStats: DailyBriefingMoneyStats;
   recommendation: string;
   recommendationAr: string;
+  goalAlignment?: DailyGoalAlignmentResult;
 }
 
 export interface BriefingInputState {
@@ -48,6 +50,7 @@ export interface BriefingInputState {
   focus: FocusSummary;
   finance: FinanceSummary;
   knowledge: KnowledgeSummary;
+  goalAlignment?: DailyGoalAlignmentResult;
 }
 
 /**
@@ -165,6 +168,7 @@ export function generateDailyBriefing(
       moneyStats,
       recommendation: 'Create your first goal or plan today’s agenda in the Planner.',
       recommendationAr: 'أنشئ هدفك الأول أو حدد مهام اليوم في المخطط لبدء بناء زخمك.',
+      goalAlignment: state?.goalAlignment,
     };
   }
 
@@ -219,5 +223,6 @@ export function generateDailyBriefing(
     moneyStats,
     recommendation,
     recommendationAr,
+    goalAlignment: state?.goalAlignment,
   };
 }

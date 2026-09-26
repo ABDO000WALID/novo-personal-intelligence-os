@@ -58,6 +58,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   createdAt: string;
+  replyToMessageId?: string;
 }
 
 export interface Conversation {

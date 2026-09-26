@@ -1,4 +1,5 @@
 import { useApp } from '../../core/providers/AppContext';
+import { useAuthStore } from '../../core/auth/authStore';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { RightPanel } from './RightPanel';
@@ -17,7 +18,23 @@ import { ErrorBoundary } from '../ErrorBoundary';
 
 export function AppShell() {
   const { activeRoute, language } = useApp();
+  const isLoading = useAuthStore((state) => state.loading);
   const dir = language === 'ar' ? 'rtl' : 'ltr';
+
+  if (isLoading) {
+    return (
+      <div
+        dir={dir}
+        lang={language}
+        className="h-[100dvh] w-full bg-[#06070c] text-zinc-100 flex flex-col items-center justify-center antialiased"
+      >
+        <div className="w-8 h-8 border-4 border-violet-500/30 border-t-violet-500 rounded-full animate-spin mb-4" />
+        <div className="text-zinc-400 text-sm">
+          {language === 'ar' ? 'جاري التحميل...' : 'Loading...'}
+        </div>
+      </div>
+    );
+  }
 
   const renderActiveView = () => {
     switch (activeRoute) {

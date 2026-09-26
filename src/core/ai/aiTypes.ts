@@ -1,6 +1,6 @@
 import { RouteId } from '../../types/navigation';
 import { NOVOContext } from '../intelligence/intelligenceTypes';
-import { NOVOCommand } from '../commands/commandTypes';
+import { NOVOCommand, TaskActionProposal, GoalProgressActionProposal } from '../commands/commandTypes';
 
 export type AIMessageRole = 'system' | 'user' | 'assistant';
 
@@ -71,6 +71,7 @@ export interface ChatOrchestrationRequest {
   conversationHistory?: Array<{ role: string; content: string; createdAt?: string }>;
   language?: 'ar' | 'en';
   options?: AIRequestOptions;
+  messageId?: string;
 }
 
 export interface ChatOrchestrationResult {
@@ -81,6 +82,8 @@ export interface ChatOrchestrationResult {
     ar: string;
     en: string;
   };
+  taskProposal?: TaskActionProposal;
+  goalProgressProposal?: GoalProgressActionProposal;
   aiResponse?: AIResponse;
   error?: AIError;
 }

@@ -6,3 +6,20 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Temporary development, patch, and debug artifacts
+patch*
+fix_*
+*.txt
+debug.*
+res*
+pre-edit*
+test.js
+test_debug*.ts
+test_env*.ts
+test_snapshot.*
+init_app.ts
+list_models.ts
+test_models.ts
+update_focus.js
+bun.lock

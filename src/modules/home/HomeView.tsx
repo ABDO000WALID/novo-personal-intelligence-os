@@ -1,6 +1,6 @@
 import { useState, KeyboardEvent } from 'react';
 import { useApp } from '../../core/providers/AppContext';
-import { useChat } from '../chat/hooks/useChat';
+import { useChatStore } from '../../core/state/chatStore';
 import { useIntelligence } from '../../core/intelligence';
 import { parseCommand } from '../../core/commands';
 import {
@@ -46,7 +46,7 @@ export function HomeView() {
   const [showWeeklyReview, setShowWeeklyReview] = useState(false);
 
   // Intelligence Layer & Local Core Hook
-  const { createConversation } = useChat();
+  const createConversation = useChatStore(state => state.createConversation);
   const {
     productivity,
     goalHealth,
@@ -57,6 +57,7 @@ export function HomeView() {
     novoScore,
     briefing,
     weeklyReview,
+    dailyGoalAlignment,
     insights,
     topInsight,
     activityTimeline,
@@ -423,6 +424,119 @@ export function HomeView() {
                 ${briefing.moneyStats.balance.toFixed(0)}
               </div>
             </button>
+          </div>
+
+          {/* Daily Goal Alignment Intelligence Section */}
+          <div
+            id="home-daily-goal-alignment"
+            className="p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80 space-y-2 text-xs"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+              <div className="flex items-center gap-2">
+                <Target className="w-3.5 h-3.5 text-violet-400 shrink-0" />
+                <span className="font-semibold text-zinc-200">
+                  {isAr ? 'توافق أهداف اليوم' : 'Goal Alignment'}
+                </span>
+                {dailyGoalAlignment.todayTaskCount > 0 && (
+                  <span
+                    id="daily-goal-alignment-badge"
+                    className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-violet-950/60 border border-violet-800/40 text-violet-300 font-medium"
+                  >
+                    {dailyGoalAlignment.alignmentRate}%
+                  </span>
+                )}
+              </div>
+
+              {/* Status summary sentence */}
+              <div id="daily-goal-alignment-summary" className="text-[11px] text-zinc-400">
+                {dailyGoalAlignment.todayTaskCount === 0 ? (
+                  <span>
+                    {isAr
+                      ? 'لم يتم جدولة أي مهام لليوم بعد.'
+                      : 'No tasks scheduled for today yet.'}
+                  </span>
+                ) : dailyGoalAlignment.todayGoalTaskCount === 0 ? (
+                  <span>
+                    {isAr
+                      ? `لا ترتبط أي من مهام اليوم الـ ${dailyGoalAlignment.todayTaskCount} بأهداف نشطة.`
+                      : `None of today's ${dailyGoalAlignment.todayTaskCount} task${dailyGoalAlignment.todayTaskCount > 1 ? 's' : ''} support active goals.`}
+                  </span>
+                ) : (
+                  <span>
+                    {isAr
+                      ? `${dailyGoalAlignment.todayGoalTaskCount} من أصل ${dailyGoalAlignment.todayTaskCount} مهام اليوم تدعم أهدافك النشطة.`
+                      : `${dailyGoalAlignment.todayGoalTaskCount} of ${dailyGoalAlignment.todayTaskCount} task${dailyGoalAlignment.todayTaskCount > 1 ? 's' : ''} today support active goals.`}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Primary Goal & Priority Support row */}
+            {dailyGoalAlignment.primaryGoal && (
+              <div
+                id="daily-goal-alignment-primary-goal"
+                className="flex flex-wrap items-center gap-2 pt-1 border-t border-zinc-800/50 text-[11px]"
+              >
+                <div className="flex items-center gap-1.5 text-zinc-300">
+                  <span className="text-zinc-400 font-medium">
+                    {isAr ? 'الهدف الرئيسي:' : 'Primary goal:'}
+                  </span>
+                  <button
+                    onClick={() => setActiveRoute('goals')}
+                    className="font-medium text-violet-300 hover:text-violet-200 underline decoration-violet-500/30 underline-offset-2 transition-colors cursor-pointer"
+                  >
+                    {dailyGoalAlignment.primaryGoal.title}
+                  </button>
+                  <span className="text-[10px] text-zinc-500 font-mono">
+                    ({dailyGoalAlignment.primaryGoal.progress}%)
+                  </span>
+                </div>
+
+                {dailyGoalAlignment.goalAlignedPriorityTasks.length > 0 && (
+                  <div
+                    id="daily-goal-alignment-priority-badge"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-950/40 border border-rose-800/30 text-rose-300 text-[10px]"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                    <span>
+                      {isAr
+                        ? `${dailyGoalAlignment.goalAlignedPriorityTasks.length} مهام ذات أولوية تدعم هذا الهدف.`
+                        : `${dailyGoalAlignment.goalAlignedPriorityTasks.length} high-priority task${dailyGoalAlignment.goalAlignedPriorityTasks.length > 1 ? 's' : ''} support this goal.`}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Unattended active goals notice (neutral, non-judgmental phrasing) */}
+            {dailyGoalAlignment.unattendedGoals.length > 0 && (
+              <div
+                id="daily-goal-alignment-unattended"
+                className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px] text-zinc-400 border-t border-zinc-800/40"
+              >
+                <span className="text-zinc-500">
+                  {isAr ? 'غير مجدول اليوم:' : 'Not scheduled today:'}
+                </span>
+                {dailyGoalAlignment.unattendedGoals.slice(0, 3).map((g, idx) => (
+                  <span key={g.id} className="inline-flex items-center">
+                    <button
+                      onClick={() => setActiveRoute('goals')}
+                      className="text-zinc-300 hover:text-zinc-100 transition-colors underline decoration-zinc-700 underline-offset-2 cursor-pointer"
+                    >
+                      {g.title}
+                    </button>
+                    {idx < Math.min(dailyGoalAlignment.unattendedGoals.length, 3) - 1 && (
+                      <span className="mx-1 text-zinc-600">•</span>
+                    )}
+                  </span>
+                ))}
+                {dailyGoalAlignment.unattendedGoals.length > 3 && (
+                  <span className="text-zinc-500 font-mono">
+                    +{dailyGoalAlignment.unattendedGoals.length - 3}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Local Intelligent Recommendation Banner */}

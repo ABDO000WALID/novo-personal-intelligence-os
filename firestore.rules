@@ -1,0 +1,62 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper: Verify the requester is authenticated and their UID matches the path UID
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // Strict Namespace Ownership
+    match /users/{uid} {
+      
+      // Known subcollections
+      match /tasks/{taskId} {
+        allow read, write: if isOwner(uid);
+      }
+      
+      match /goals/{goalId} {
+        allow read, write: if isOwner(uid);
+      }
+      
+      match /notes/{noteId} {
+        allow read, write: if isOwner(uid);
+      }
+      
+      match /knowledge/{knowledgeId} {
+        allow read, write: if isOwner(uid);
+      }
+      
+      match /money/{transactionId} {
+        allow read, write: if isOwner(uid);
+      }
+      
+      match /focus_sessions/{sessionId} {
+        allow read, write: if isOwner(uid);
+      }
+      
+      match /conversations/{conversationId} {
+        allow read, write: if isOwner(uid);
+      }
+
+      // Known singleton documents
+      match /active_state/focus {
+        allow read, write: if isOwner(uid);
+      }
+      
+      match /active_state/chat {
+        allow read, write: if isOwner(uid);
+      }
+      
+      match /metadata/migration {
+        allow read, write: if isOwner(uid);
+      }
+    }
+  }
+}

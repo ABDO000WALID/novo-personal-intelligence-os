@@ -1,8 +1,10 @@
+import React from 'react';
+import { useGoalStore } from '../../core/state/goalStore';
+import { useTaskStore } from '../../core/state/taskStore';
 import { useApp } from '../../core/providers/AppContext';
-import { usePlanner } from '../../modules/planner/hooks/usePlanner';
-import { useGoals } from '../../modules/goals/hooks/useGoals';
-import { useFocus } from '../../modules/focus/hooks/useFocus';
-import { useKnowledge } from '../../modules/knowledge/hooks/useKnowledge';
+import { useFocusStore } from '../../core/state/focusStore';
+import { useKnowledgeStore } from '../../core/state/knowledgeStore';
+import { useNoteStore } from '../../core/state/noteStore';
 import { useIntelligence } from '../../core/intelligence';
 import {
   X,
@@ -25,10 +27,28 @@ export function RightPanel() {
   const { isRightPanelOpen, setIsRightPanelOpen, language, setActiveRoute } = useApp();
   const isAr = language === 'ar';
 
-  const { tasks, toggleTask } = usePlanner();
-  const { goals } = useGoals();
-  const { activeState, displaySeconds, startSession, pauseTimer, resumeTimer, sessions } = useFocus();
-  const { items: knowledgeItems, pinnedItems: pinnedKnowledge } = useKnowledge();
+  const tasks = useTaskStore(state => state.tasks);
+  const toggleTask = useTaskStore(state => state.toggleTask);
+  const goals = useGoalStore(state => state.goals);
+  const initializeFocus = useFocusStore(state => state.initialize);
+  const initializeTasks = useTaskStore(state => state.initialize);
+  const initializeGoals = useGoalStore(state => state.initialize);
+  const initializeNotes = useNoteStore(state => state.initialize);
+  
+  React.useEffect(() => {
+    initializeFocus();
+    initializeTasks();
+    initializeGoals();
+    initializeNotes();
+  }, [initializeFocus, initializeTasks, initializeGoals, initializeNotes]);
+  const activeState = useFocusStore(state => state.activeState);
+  const displaySeconds = useFocusStore(state => state.displaySeconds);
+  const startSession = useFocusStore(state => state.startSession);
+  const pauseTimer = useFocusStore(state => state.pauseTimer);
+  const resumeTimer = useFocusStore(state => state.resumeTimer);
+  const sessions = useFocusStore(state => state.sessions);
+  const knowledgeItems = useKnowledgeStore(state => state.knowledge);
+  const pinnedKnowledge = React.useMemo(() => knowledgeItems.filter(k => k.pinned), [knowledgeItems]);
   const {
     productivity,
     goalHealth,

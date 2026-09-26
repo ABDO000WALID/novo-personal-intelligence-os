@@ -3,6 +3,9 @@ import { useApp } from '../../core/providers/AppContext';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { useAuthStore } from '../../core/auth/authStore';
+import { auth } from '../../core/auth/firebase';
+import { signInAnonymously, signOut } from 'firebase/auth';
 import {
   backupService,
   BackupStats,
@@ -32,14 +35,21 @@ import {
   DollarSign,
   MessageSquare,
   Sparkles,
+  User as UserIcon,
 } from 'lucide-react';
+import { Gate174Tier2FixtureSection } from './components/Gate174Tier2FixtureSection';
 
 export function SettingsView() {
   const { language, setLanguage } = useApp();
   const isAr = language === 'ar';
+  const { user: authUser, loading: authLoading } = useAuthStore();
 
   // Storage stats
-  const [stats, setStats] = useState<BackupStats>(() => backupService.getStorageStats());
+  const [stats, setStats] = useState<BackupStats | null>(null);
+  
+  useEffect(() => {
+    backupService.getStorageStats().then(setStats);
+  }, []);
   const [exportSuccess, setExportSuccess] = useState(false);
 
   // Import flow state
@@ -49,9 +59,7 @@ export function SettingsView() {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState(false);
 
-  const refreshStats = () => {
-    setStats(backupService.getStorageStats());
-  };
+  const refreshStats = async () => { setStats(await backupService.getStorageStats()); };
 
   useEffect(() => {
     const handleUpdate = () => {
@@ -61,8 +69,8 @@ export function SettingsView() {
     return () => window.removeEventListener(NOVO_STORAGE_EVENT, handleUpdate);
   }, []);
 
-  const handleExport = () => {
-    backupService.exportBackup();
+  const handleExport = async () => {
+    await backupService.exportBackup();
     setExportSuccess(true);
     setTimeout(() => setExportSuccess(false), 3000);
   };
@@ -95,10 +103,10 @@ export function SettingsView() {
     e.target.value = '';
   };
 
-  const handleConfirmImport = () => {
+  const handleConfirmImport = async () => {
     if (!pendingBackup) return;
 
-    const success = backupService.importBackup(pendingBackup);
+    const success = await backupService.importBackup(pendingBackup);
     if (success) {
       setImportSuccess(true);
       setPendingBackup(null);
@@ -143,6 +151,61 @@ export function SettingsView() {
       </div>
 
       <div className="space-y-4">
+        {/* Firebase Authentication Testing Card */}
+        <Card className="space-y-4">
+          <div className="flex items-center justify-between border-b border-zinc-800/60 pb-3">
+            <div className="flex items-center gap-2.5">
+              <UserIcon className="w-4 h-4 text-violet-400" />
+              <div>
+                <h2 className="text-sm font-medium text-zinc-200">
+                  {isAr ? 'حساب المستخدم' : 'User Account'}
+                </h2>
+                <p className="text-xs text-zinc-500">
+                  {isAr ? 'إدارة حالة تسجيل الدخول' : 'Authentication status and testing'}
+                </p>
+              </div>
+            </div>
+            {authLoading && (
+              <span className="text-xs text-zinc-500">{isAr ? 'جاري التحميل...' : 'Loading...'}</span>
+            )}
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-zinc-300">
+              {authUser ? (
+                <span>
+                  {isAr ? 'مسجل الدخول كـ: ' : 'Signed in as: '}{' '}
+                  <span className="font-mono text-violet-400">{authUser.uid}</span>
+                </span>
+              ) : (
+                <span className="text-zinc-500">
+                  {isAr ? 'غير مسجل الدخول' : 'Not signed in'}
+                </span>
+              )}
+            </div>
+            <div className="flex gap-2">
+              {!authUser ? (
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={() => auth && signInAnonymously(auth)}
+                  disabled={!auth || authLoading}
+                >
+                  {isAr ? 'تسجيل دخول مجهول' : 'Sign in (Anonymous)'}
+                </Button>
+              ) : (
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={() => auth && signOut(auth)}
+                  disabled={!auth || authLoading}
+                >
+                  {isAr ? 'تسجيل الخروج' : 'Sign Out'}
+                </Button>
+              )}
+            </div>
+          </div>
+        </Card>
+
         {/* 2. Language Selection Card */}
         <Card className="space-y-4">
           <div className="flex items-center justify-between border-b border-zinc-800/60 pb-3">
@@ -206,7 +269,7 @@ export function SettingsView() {
               </div>
             </div>
             <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-800/80 text-zinc-300 border border-zinc-700/60">
-              {stats.sizeKb} KB
+              {stats?.sizeKb} KB
             </span>
           </div>
 
@@ -229,7 +292,7 @@ export function SettingsView() {
             <div className="flex items-center gap-2 text-xs font-mono text-zinc-400 self-start sm:self-auto">
               <span>{isAr ? 'إجمالي العناصر:' : 'Total records:'}</span>
               <span className="px-2 py-0.5 rounded bg-violet-950/50 text-violet-300 border border-violet-800/50 font-bold">
-                {stats.totalItems}
+                {stats?.totalItems}
               </span>
             </div>
           </div>
@@ -241,7 +304,7 @@ export function SettingsView() {
                 <FileText className="w-3.5 h-3.5 text-zinc-500" />
                 <span>{isAr ? 'الملاحظات' : 'Notes'}</span>
               </span>
-              <span className="font-mono text-zinc-200 font-semibold">{stats.notesCount}</span>
+              <span className="font-mono text-zinc-200 font-semibold">{stats?.notesCount}</span>
             </div>
 
             <div className="p-2.5 rounded-lg bg-zinc-950/40 border border-zinc-800/60 flex items-center justify-between">
@@ -249,7 +312,7 @@ export function SettingsView() {
                 <Target className="w-3.5 h-3.5 text-indigo-400" />
                 <span>{isAr ? 'الأهداف' : 'Goals'}</span>
               </span>
-              <span className="font-mono text-zinc-200 font-semibold">{stats.goalsCount}</span>
+              <span className="font-mono text-zinc-200 font-semibold">{stats?.goalsCount}</span>
             </div>
 
             <div className="p-2.5 rounded-lg bg-zinc-950/40 border border-zinc-800/60 flex items-center justify-between">
@@ -257,7 +320,7 @@ export function SettingsView() {
                 <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
                 <span>{isAr ? 'المهام' : 'Tasks'}</span>
               </span>
-              <span className="font-mono text-zinc-200 font-semibold">{stats.tasksCount}</span>
+              <span className="font-mono text-zinc-200 font-semibold">{stats?.tasksCount}</span>
             </div>
 
             <div className="p-2.5 rounded-lg bg-zinc-950/40 border border-zinc-800/60 flex items-center justify-between">
@@ -265,7 +328,7 @@ export function SettingsView() {
                 <Clock className="w-3.5 h-3.5 text-amber-400" />
                 <span>{isAr ? 'جلسات التركيز' : 'Focus'}</span>
               </span>
-              <span className="font-mono text-zinc-200 font-semibold">{stats.focusSessionsCount}</span>
+              <span className="font-mono text-zinc-200 font-semibold">{stats?.focusSessionsCount}</span>
             </div>
 
             <div className="p-2.5 rounded-lg bg-zinc-950/40 border border-zinc-800/60 flex items-center justify-between">
@@ -273,7 +336,7 @@ export function SettingsView() {
                 <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
                 <span>{isAr ? 'المعاملات المالية' : 'Transactions'}</span>
               </span>
-              <span className="font-mono text-zinc-200 font-semibold">{stats.transactionsCount}</span>
+              <span className="font-mono text-zinc-200 font-semibold">{stats?.transactionsCount}</span>
             </div>
 
             <div className="p-2.5 rounded-lg bg-zinc-950/40 border border-zinc-800/60 flex items-center justify-between">
@@ -281,7 +344,7 @@ export function SettingsView() {
                 <MessageSquare className="w-3.5 h-3.5 text-sky-400" />
                 <span>{isAr ? 'المحادثات' : 'Conversations'}</span>
               </span>
-              <span className="font-mono text-zinc-200 font-semibold">{stats.conversationsCount}</span>
+              <span className="font-mono text-zinc-200 font-semibold">{stats?.conversationsCount}</span>
             </div>
 
             <div className="p-2.5 rounded-lg bg-zinc-950/40 border border-zinc-800/60 flex items-center justify-between col-span-2">
@@ -289,7 +352,7 @@ export function SettingsView() {
                 <Database className="w-3.5 h-3.5 text-violet-400" />
                 <span>{isAr ? 'المعرفة والذاكرة' : 'Knowledge & Memory'}</span>
               </span>
-              <span className="font-mono text-zinc-200 font-semibold">{stats.knowledgeCount}</span>
+              <span className="font-mono text-zinc-200 font-semibold">{stats?.knowledgeCount}</span>
             </div>
           </div>
 
@@ -388,9 +451,14 @@ export function SettingsView() {
             </div>
           </div>
         </Card>
+
+        {/* 5. Dev-Only: Gate 17.4 Tier 2 Test Fixture */}
+        {import.meta.env.DEV && (
+          <Gate174Tier2FixtureSection isAr={isAr} />
+        )}
       </div>
 
-      {/* 5. Import Confirmation Modal */}
+      {/* 6. Import Confirmation Modal */}
       {pendingBackup && pendingStats && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs">
           <div

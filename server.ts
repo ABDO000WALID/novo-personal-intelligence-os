@@ -1,4 +1,5 @@
 import express from 'express';
+import { setupLiveTransport } from './server/liveTransport.ts';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -162,7 +163,7 @@ function reportModelSuccess(modelName) {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json({ limit: '2mb' }));
 
@@ -378,6 +379,8 @@ async function startServer() {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
 
+  
+  setupLiveTransport(server);
   server.on('error', (err) => {
     console.error('[SERVER ERROR]', err);
   });

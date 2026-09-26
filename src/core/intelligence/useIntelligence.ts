@@ -1,11 +1,12 @@
+import { useGoalStore } from '../state/goalStore';
+import { useTaskStore } from '../state/taskStore';
 import { useMemo, useCallback } from 'react';
-import { usePlanner } from '../../modules/planner/hooks/usePlanner';
-import { useGoals } from '../../modules/goals/hooks/useGoals';
-import { useFocus } from '../../modules/focus/hooks/useFocus';
-import { useNotes } from '../../modules/notes/hooks/useNotes';
-import { useMoney } from '../../modules/money/hooks/useMoney';
-import { useKnowledge } from '../../modules/knowledge/hooks/useKnowledge';
-import { useChat } from '../../modules/chat/hooks/useChat';
+
+import { useFocusStore } from '../state/focusStore';
+import { useNoteStore } from '../state/noteStore';
+import { useMoneyStore } from '../state/moneyStore';
+import { useKnowledgeStore } from '../state/knowledgeStore';
+import { useChatStore } from '../state/chatStore';
 
 import {
   ProductivitySummary,
@@ -21,10 +22,11 @@ import {
   NovoScore,
   DailyBriefing,
   WeeklyReview,
+  DailyGoalAlignmentResult,
 } from './intelligenceTypes';
 
 import { analyzeProductivity } from './productivityEngine';
-import { analyzeGoals } from './goalEngine';
+import { analyzeGoals, analyzeDailyGoalAlignment } from './goalEngine';
 import { analyzeFocus } from './focusEngine';
 import { analyzeFinance } from './financeEngine';
 import { analyzeNotesAndKnowledge } from './notesEngine';
@@ -50,6 +52,7 @@ export interface UseIntelligenceResult {
   novoScore: NovoScore; // Full score with labels and category breakdown
   briefing: DailyBriefing; // Morning/daily briefing with stats and recommendation
   weeklyReview: WeeklyReview; // Weekly productivity retrospective
+  dailyGoalAlignment: DailyGoalAlignmentResult; // Pure deterministic goal-aligned execution analysis
   insights: Insight[];
   topInsight: Insight | null;
   activityTimeline: ActivityItem[];
@@ -65,13 +68,13 @@ export interface UseIntelligenceResult {
  * with the deterministic intelligence analysis engines.
  */
 export function useIntelligence(): UseIntelligenceResult {
-  const { tasks } = usePlanner();
-  const { goals } = useGoals();
-  const { sessions } = useFocus();
-  const { notes } = useNotes();
-  const { transactions } = useMoney();
-  const { items: knowledgeItems } = useKnowledge();
-  const { conversations } = useChat();
+  const tasks = useTaskStore(state => state.tasks);
+  const goals = useGoalStore(state => state.goals);
+  const sessions = useFocusStore(state => state.sessions);
+  const notes = useNoteStore(state => state.notes);
+  const transactions = useMoneyStore(state => state.transactions);
+  const knowledgeItems = useKnowledgeStore(state => state.knowledge);
+  const conversations = useChatStore(state => state.conversations);
 
   // 1. Productivity analysis
   const productivity = useMemo(() => {
@@ -150,7 +153,12 @@ export function useIntelligence(): UseIntelligenceResult {
     return getWeekActivity(activityTimeline);
   }, [activityTimeline]);
 
-  // 9. Daily Briefing
+  // 9. Daily Goal Alignment (pure deterministic analysis)
+  const dailyGoalAlignment = useMemo(() => {
+    return analyzeDailyGoalAlignment(tasks, goals);
+  }, [tasks, goals]);
+
+  // 10. Daily Briefing
   const briefing = useMemo(() => {
     return generateDailyBriefing({
       productivity,
@@ -158,10 +166,11 @@ export function useIntelligence(): UseIntelligenceResult {
       focus,
       finance,
       knowledge,
+      goalAlignment: dailyGoalAlignment,
     });
-  }, [productivity, goalHealth, focus, finance, knowledge]);
+  }, [productivity, goalHealth, focus, finance, knowledge, dailyGoalAlignment]);
 
-  // 10. Weekly Review
+  // 11. Weekly Review
   const weeklyReview = useMemo(() => {
     return generateWeeklyReview({
       tasks,
@@ -173,7 +182,7 @@ export function useIntelligence(): UseIntelligenceResult {
     });
   }, [tasks, notes, goals, sessions, transactions, knowledgeItems]);
 
-  // 11. Daily Overview object
+  // 12. Daily Overview object
   const dailyOverview: DailyOverview = useMemo(() => {
     return {
       date: getTodayString(),
@@ -188,7 +197,7 @@ export function useIntelligence(): UseIntelligenceResult {
     };
   }, [productivity, goalHealth, focus, finance, knowledge, productivityScore, insights, activityTimeline]);
 
-  // 12. Context Builder callable
+  // 13. Context Builder callable
   const getContext = useCallback((): NOVOContext => {
     return buildNOVOContext({
       tasks,
@@ -211,6 +220,7 @@ export function useIntelligence(): UseIntelligenceResult {
     novoScore,
     briefing,
     weeklyReview,
+    dailyGoalAlignment,
     insights,
     topInsight,
     activityTimeline,

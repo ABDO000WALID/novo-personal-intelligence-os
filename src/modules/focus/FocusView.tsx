@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { useApp } from '../../core/providers/AppContext';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { useFocus } from './hooks/useFocus';
+import { useFocusStore } from '../../core/state/focusStore';
+import { FocusMode } from './domain/types';
+import { useEffect } from 'react';
 import {
   Flame,
   Play,
@@ -19,17 +21,20 @@ export function FocusView() {
   const { language } = useApp();
   const isAr = language === 'ar';
   
-  const {
-    activeState,
-    displaySeconds,
-    sessions,
-    startSession,
-    pauseTimer,
-    resumeTimer,
-    finishSession,
-    cancelSession,
-    clearSessions,
-  } = useFocus();
+  const initialize = useFocusStore(state => state.initialize);
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
+
+  const activeState = useFocusStore(state => state.activeState);
+  const displaySeconds = useFocusStore(state => state.displaySeconds);
+  const sessions = useFocusStore(state => state.sessions);
+  const startSession = useFocusStore(state => state.startSession);
+  const pauseTimer = useFocusStore(state => state.pauseTimer);
+  const resumeTimer = useFocusStore(state => state.resumeTimer);
+  const finishSession = useFocusStore(state => state.finishSession);
+  const cancelSession = useFocusStore(state => state.cancelSession);
+  const clearSessions = useFocusStore(state => state.clearSessions);
 
   const [customHours, setCustomHours] = useState('0');
   const [customMinutes, setCustomMinutes] = useState('30');
