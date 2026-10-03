@@ -806,6 +806,30 @@ export class AIOrchestrator {
         };
       }
 
+      // If goal creation command: generate structured goal creation proposal
+      if (
+        parseResult.command.action === 'create_goal' &&
+        parseResult.command.goalPayload
+      ) {
+        const payload = parseResult.command.goalPayload;
+        const proposalId = `gcreate-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        return {
+          handledAsCommand: true,
+          command: parseResult.command,
+          goalProposal: {
+            id: proposalId,
+            title: payload.title,
+            description: payload.description || '',
+            initialProgress: payload.initialProgress || 0,
+            status: 'pending',
+          },
+          commandFeedback: {
+            ar: parseResult.command.feedbackAr,
+            en: parseResult.command.feedbackEn,
+          },
+        };
+      }
+
       return {
         handledAsCommand: true,
         command: parseResult.command,

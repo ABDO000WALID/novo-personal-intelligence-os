@@ -646,7 +646,7 @@ async function runGate17_4Tests() {
       title: 'Active Project',
       description: 'Active Project description',
       progress: 50,
-      updatedAt: '2026-09-22T10:00:00Z', // Updated yesterday
+      updatedAt: new Date(refDate.getTime() - 24 * 60 * 60 * 1000).toISOString(), // Updated yesterday
       createdAt: '2026-09-01T10:00:00Z',
     },
   ];

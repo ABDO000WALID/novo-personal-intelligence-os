@@ -1,6 +1,11 @@
 import { RouteId } from '../../types/navigation';
 import { NOVOContext } from '../intelligence/intelligenceTypes';
-import { NOVOCommand, TaskActionProposal, GoalProgressActionProposal } from '../commands/commandTypes';
+import {
+  NOVOCommand,
+  TaskActionProposal,
+  GoalProgressActionProposal,
+  GoalActionProposal,
+} from '../commands/commandTypes';
 
 export type AIMessageRole = 'system' | 'user' | 'assistant';
 
@@ -84,6 +89,7 @@ export interface ChatOrchestrationResult {
   };
   taskProposal?: TaskActionProposal;
   goalProgressProposal?: GoalProgressActionProposal;
+  goalProposal?: GoalActionProposal;
   aiResponse?: AIResponse;
   error?: AIError;
 }

@@ -9,6 +9,7 @@ export type CommandActionType =
   | 'navigate'
   | 'system'
   | 'create_task'
+  | 'create_goal'
   | 'update_goal_progress'
   | 'align_day'
   | 'daily_briefing'
@@ -99,6 +100,21 @@ export interface TaskActionProposal {
   status: 'pending' | 'confirmed' | 'cancelled';
 }
 
+export interface CreateGoalCommandPayload {
+  title: string;
+  description?: string;
+  initialProgress?: number;
+}
+
+export interface GoalActionProposal {
+  id: string;
+  originatingMessageId?: string;
+  title: string;
+  description?: string;
+  initialProgress?: number;
+  status: 'pending' | 'confirmed' | 'cancelled';
+}
+
 export interface UpdateGoalProgressCommandPayload {
   goalId: string;
   goalTitle: string;
@@ -122,6 +138,7 @@ export interface NOVOCommand {
   action: CommandActionType;
   targetRoute?: RouteId;
   taskPayload?: CreateTaskCommandPayload;
+  goalPayload?: CreateGoalCommandPayload;
   goalProgressPayload?: UpdateGoalProgressCommandPayload;
   alignDayPayload?: AlignDayCommandPayload;
   dailyBriefingPayload?: DailyBriefingCommandPayload;

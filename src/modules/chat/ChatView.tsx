@@ -33,6 +33,7 @@ import {
 import { LiveChatSurface } from './components/LiveChatSurface';
 import { TaskProposalCard } from './components/TaskProposalCard';
 import { GoalProgressProposalCard } from './components/GoalProgressProposalCard';
+import { GoalProposalCard } from './components/GoalProposalCard';
 
 export function ChatView() {
   const { language, setActiveRoute } = useApp();
@@ -68,10 +69,12 @@ export function ChatView() {
     lastCommandFeedback,
     activeProposal,
     activeGoalProgressProposal,
+    activeGoalProposal,
     submitMessage,
     retryLastMessage,
     clearProposal,
     clearGoalProgressProposal,
+    clearGoalProposal,
     clearError,
   } = useChatOrchestrator({
     getContext,
@@ -567,6 +570,16 @@ export function ChatView() {
                         ) &&
                         isLastMessage));
 
+                  const attachGoalProposal =
+                    activeGoalProposal &&
+                    (activeGoalProposal.originatingMessageId === msg.id ||
+                      (!activeGoalProposal.originatingMessageId &&
+                        isUser &&
+                        !activeConversation.messages.some(
+                          (m) => m.id === activeGoalProposal.originatingMessageId
+                        ) &&
+                        isLastMessage));
+
                   return (
                     <React.Fragment key={msg.id}>
                       <div
@@ -656,6 +669,21 @@ export function ChatView() {
                           </div>
                         </div>
                       )}
+
+                      {/* Active Goal Creation Proposal Anchored to originating message */}
+                      {attachGoalProposal && (
+                        <div className="flex justify-start my-2 w-full max-w-lg">
+                          <div className="w-full">
+                            <GoalProposalCard
+                              proposal={activeGoalProposal}
+                              language={language}
+                              onResolved={() => {
+                                // Allow the resolved badge (Confirmed/Cancelled) to remain visible in stream
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </React.Fragment>
                   );
                 })}
@@ -690,6 +718,24 @@ export function ChatView() {
                       <div className="w-full">
                         <GoalProgressProposalCard
                           proposal={activeGoalProgressProposal}
+                          language={language}
+                          onResolved={() => {}}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                {activeGoalProposal &&
+                  !activeConversation.messages.some(
+                    (m) =>
+                      activeGoalProposal.originatingMessageId === m.id ||
+                      (!activeGoalProposal.originatingMessageId &&
+                        m === activeConversation.messages[activeConversation.messages.length - 1])
+                  ) && (
+                    <div className="flex justify-start my-2 w-full max-w-lg">
+                      <div className="w-full">
+                        <GoalProposalCard
+                          proposal={activeGoalProposal}
                           language={language}
                           onResolved={() => {}}
                         />

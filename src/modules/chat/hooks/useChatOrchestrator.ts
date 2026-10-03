@@ -5,7 +5,11 @@ import { useChatStore } from '../../../core/state/chatStore';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { AuthLifecycle } from '../../../core/auth/authLifecycle';
 import { NOVOContext } from '../../../core/intelligence/intelligenceTypes';
-import { TaskActionProposal, GoalProgressActionProposal } from '../../../core/commands/commandTypes';
+import {
+  TaskActionProposal,
+  GoalProgressActionProposal,
+  GoalActionProposal,
+} from '../../../core/commands/commandTypes';
 import {
   AIError,
   ChatExecutionState,
@@ -25,10 +29,12 @@ export interface UseChatOrchestratorResult {
   lastCommandFeedback: { ar: string; en: string } | null;
   activeProposal: TaskActionProposal | null;
   activeGoalProgressProposal: GoalProgressActionProposal | null;
+  activeGoalProposal: GoalActionProposal | null;
   submitMessage: (message: string) => Promise<ChatOrchestrationResult>;
   retryLastMessage: () => Promise<ChatOrchestrationResult | null>;
   clearProposal: () => void;
   clearGoalProgressProposal: () => void;
+  clearGoalProposal: () => void;
   clearError: () => void;
 }
 
@@ -45,6 +51,7 @@ export function useChatOrchestrator({
   } | null>(null);
   const [activeProposal, setActiveProposal] = useState<TaskActionProposal | null>(null);
   const [activeGoalProgressProposal, setActiveGoalProgressProposal] = useState<GoalProgressActionProposal | null>(null);
+  const [activeGoalProposal, setActiveGoalProposal] = useState<GoalActionProposal | null>(null);
 
   const lastSubmittedMessageRef = useRef<string | null>(null);
   const isSubmittingRef = useRef<boolean>(false);
@@ -61,6 +68,36 @@ export function useChatOrchestrator({
   const clearGoalProgressProposal = useCallback(() => {
     setActiveGoalProgressProposal(null);
   }, []);
+
+  const clearGoalProposal = useCallback(() => {
+    setActiveGoalProposal(null);
+  }, []);
+
+  const applyCommandResult = useCallback(
+    (result: ChatOrchestrationResult, userMessageId?: string) => {
+      if (result.taskProposal) {
+        result.taskProposal.originatingMessageId = userMessageId;
+        setActiveProposal(result.taskProposal);
+      }
+      if (result.goalProgressProposal) {
+        result.goalProgressProposal.originatingMessageId = userMessageId;
+        setActiveGoalProgressProposal(result.goalProgressProposal);
+      }
+      if (result.goalProposal) {
+        result.goalProposal.originatingMessageId = userMessageId;
+        setActiveGoalProposal(result.goalProposal);
+      }
+      if (result.commandFeedback) {
+        setLastCommandFeedback(result.commandFeedback);
+      }
+      if (result.commandTargetRoute && onCommandNavigate) {
+        // Delay navigation slightly to allow UI to show feedback and state to settle
+        const target = result.commandTargetRoute;
+        onCommandNavigate(target);
+      }
+    },
+    [onCommandNavigate]
+  );
 
   const submitMessage = useCallback(
     async (message: string): Promise<ChatOrchestrationResult> => {
@@ -183,22 +220,7 @@ export function useChatOrchestrator({
         // 4. Handle result
         if (result.handledAsCommand) {
           setExecutionState('idle');
-          if (result.taskProposal) {
-            result.taskProposal.originatingMessageId = userMessageId;
-            setActiveProposal(result.taskProposal);
-          }
-          if (result.goalProgressProposal) {
-            result.goalProgressProposal.originatingMessageId = userMessageId;
-            setActiveGoalProgressProposal(result.goalProgressProposal);
-          }
-          if (result.commandFeedback) {
-            setLastCommandFeedback(result.commandFeedback);
-          }
-          if (result.commandTargetRoute && onCommandNavigate) {
-            // Delay navigation slightly to allow UI to show feedback and state to settle
-            const target = result.commandTargetRoute;
-            onCommandNavigate(target);
-          }
+          applyCommandResult(result, userMessageId);
           return result;
         }
 
@@ -240,7 +262,7 @@ export function useChatOrchestrator({
         isSubmittingRef.current = false;
       }
     },
-    [getContext, language, onCommandNavigate]
+    [getContext, language, applyCommandResult]
   );
 
   const retryLastMessage = useCallback(async (): Promise<ChatOrchestrationResult | null> => {
@@ -279,10 +301,17 @@ export function useChatOrchestrator({
 
       const result = await aiOrchestrator.orchestrate({
         message: messageToRetry,
+        messageId: lastUserMsg?.id,
         context,
         conversationHistory: activeConversation?.messages,
         language,
       });
+
+      if (result.handledAsCommand) {
+        setExecutionState('idle');
+        applyCommandResult(result, lastUserMsg?.id);
+        return result;
+      }
 
       if (result.aiResponse) {
         if (originConvId) {
@@ -322,10 +351,24 @@ export function useChatOrchestrator({
 
       setExecutionState('idle');
       return result;
+    } catch (e: any) {
+      console.error('[useChatOrchestrator] Retry unexpected rejection:', e);
+      const errorResult: AIError = {
+        code: 'REQUEST_FAILED',
+        message: e?.message || 'Failed to process retry request.',
+        messageAr: 'فشل معالجة طلب إعادة المحاولة.',
+        retryable: true,
+      };
+      setError(errorResult);
+      return {
+        handledAsCommand: false,
+        error: errorResult,
+      };
     } finally {
+      setExecutionState('idle');
       isSubmittingRef.current = false;
     }
-  }, [getContext, language]);
+  }, [getContext, language, applyCommandResult]);
 
   return {
     executionState,
@@ -333,10 +376,12 @@ export function useChatOrchestrator({
     lastCommandFeedback,
     activeProposal,
     activeGoalProgressProposal,
+    activeGoalProposal,
     submitMessage,
     retryLastMessage,
     clearProposal,
     clearGoalProgressProposal,
+    clearGoalProposal,
     clearError,
   };
 }

@@ -3,6 +3,7 @@ import { TaskPriority, Goal, Task } from '../../types/data';
 import {
   CommandParseResult,
   CreateTaskCommandPayload,
+  CreateGoalCommandPayload,
   UpdateGoalProgressCommandPayload,
   AlignDayCommandPayload,
   DailyBriefingCommandPayload,
@@ -54,9 +55,27 @@ export function getLocalDateString(offsetDays: number = 0): string {
 }
 
 /**
+ * Resolves upcoming weekday date string (YYYY-MM-DD).
+ * dayIndex: 0 (Sunday) to 6 (Saturday).
+ */
+export function getNextWeekdayDate(dayIndex: number): string {
+  const now = new Date();
+  const currentDay = now.getDay();
+  const diff = (dayIndex - currentDay + 7) % 7;
+  return getLocalDateString(diff);
+}
+
+/**
  * Explicit command prefixes for task creation in Arabic & English.
  */
 const ARABIC_TASK_PREFIXES = [
+  'اريد اضافه مهمه',
+  'اريد اضافة مهمه',
+  'عايز اضيف مهمه',
+  'عاوز اضيف مهمه',
+  'محتاج اضيف مهمه',
+  'حابب اضيف مهمه',
+  'ودي اضيف مهمه',
   'اضفلي مهمه',
   'اضف لي مهمه',
   'اضفلي مهام',
@@ -70,15 +89,121 @@ const ARABIC_TASK_PREFIXES = [
   'سجل لي مهمه',
   'سجل مهمه',
   'حطلي مهمه',
+  'حط لي مهمه',
   'حط مهمه',
+  'فكرني ان',
+  'فكرني ب',
+  'فكرني',
+  'فكرنى',
+  'ذكرني ان',
+  'ذكرني ب',
+  'ذكرني',
+  'ذكرنى',
 ];
 
 const ENGLISH_TASK_PREFIXES = [
-  'add task',
-  'create task',
-  'new task',
-  'add a task',
+  'i want to add a high-priority task to',
+  'i want to add a high priority task to',
+  'i want to add a task to',
+  'i want to add a task',
+  'i want to create a task to',
+  'i want to create a task',
+  'please add a high-priority task to',
+  'please add a task to',
+  'please add a task',
+  'add a high-priority task to',
+  'add a high priority task to',
+  'add a high-priority task',
+  'add a high priority task',
+  'add a low-priority task to',
+  'add a low priority task to',
+  'add a low-priority task',
+  'add a low priority task',
+  'add a medium-priority task to',
+  'add a medium priority task to',
+  'add a medium-priority task',
+  'add a medium priority task',
+  'create a high-priority task to',
+  'create a task to',
   'create a task',
+  'create task to',
+  'create task',
+  'add a task to',
+  'add a task',
+  'add task to',
+  'add task',
+  'new task',
+  'remind me to',
+  'remind me',
+];
+
+/**
+ * Explicit command prefixes for goal creation in Arabic & English.
+ */
+const ARABIC_GOAL_PREFIXES = [
+  'عايز احط هدف',
+  'عاوز احط هدف',
+  'محتاج احط هدف',
+  'بدي احط هدف',
+  'حابب احط هدف',
+  'عايز اضيف هدف',
+  'عاوز اضيف هدف',
+  'محتاج اضيف هدف',
+  'عايز اعمل هدف',
+  'عاوز اعمل هدف',
+  'محتاج اعمل هدف',
+  'عايز ابدا هدف',
+  'عاوز ابدا هدف',
+  'حابب ابدا هدف',
+  'اريد وضع هدف',
+  'اريد اضافة هدف',
+  'اريد اضافه هدف',
+  'اريد انشاء هدف',
+  'اريد ان ابدا هدف',
+  'اريد ابدا هدف',
+  'اريد هدف',
+  'اضفلي هدف',
+  'اضف لي هدف',
+  'اضف هدف',
+  'اعمللي هدف',
+  'اعمل لي هدف',
+  'اعمل هدف',
+  'انشئ لي هدف',
+  'انشئ هدف',
+  'انشيء لي هدف',
+  'انشيء هدف',
+  'سجل لي هدف',
+  'سجل هدف',
+  'حطلي هدف',
+  'حط لي هدف',
+  'حط هدف',
+  'ابدا هدف',
+  'ابدأ هدف',
+];
+
+const ENGLISH_GOAL_PREFIXES = [
+  "let's create a goal to",
+  "let's create a goal",
+  "lets create a goal to",
+  "lets create a goal",
+  "let us create a goal to",
+  "let us create a goal",
+  "i want to set a goal to",
+  "i want to set a goal",
+  "i want to create a goal to",
+  "i want to create a goal",
+  "i want to add a goal to",
+  "i want to add a goal",
+  "set a goal to",
+  "set a goal",
+  "create a goal to",
+  "create a goal",
+  "create goal to",
+  "create goal",
+  "add a goal to",
+  "add a goal",
+  "add goal",
+  "new goal",
 ];
 
 /**
@@ -88,32 +213,61 @@ function isConversational(text: string): boolean {
   const norm = normalizeText(text);
   const conversationalPhrases = [
     'كيف',
+    'ازاي',
     'ما هي',
     'ما هو',
     'ما رايك',
     'هل يمكنك',
     'هل تقدر',
+    'هل الافضل',
+    'هل من الافضل',
+    'هل احسن',
+    'هل ينفع',
     'تحدث معي',
     'احكيلي',
     'عندي مهام',
     'عندي الكثير',
     'تنظيم المهام',
     'اداره الوقت',
+    'انا خلصت',
+    'خلصت المهمه',
+    'مش عارف',
+    'مش متاكد',
+    'مش فاهم',
+    'لست اعلم',
     'how to',
     'how can',
     'how should',
     'what is',
+    'what do you think',
     'tell me about',
     'i have tasks',
     'i have many',
     'talk to me',
     'organize my',
+    'i finished',
+    "i don't know",
+    'i do not know',
+    'i am not sure',
+    'should i',
+    'is it better',
   ];
   for (const phrase of conversationalPhrases) {
     if (norm.startsWith(phrase) || norm.includes(` ${phrase} `) || norm.includes(` ${phrase}`)) {
       return true;
     }
   }
+
+  // Also check if ends with question mark and starts with question word
+  if (text.trim().endsWith('?') || text.trim().endsWith('؟')) {
+    const questionStarts = ['هل', 'ازاي', 'كيف', 'ليه', 'لماذا', 'ماذا', 'مين', 'فين', 'how', 'why', 'what', 'where', 'who', 'should', 'can', 'could', 'is'];
+    for (const qs of questionStarts) {
+      if (norm.startsWith(qs + ' ') || norm === qs) {
+        return true;
+      }
+    }
+  }
+
   return false;
 }
 
@@ -235,7 +389,7 @@ export function parseTaskCreationCommand(
 
   // Check tomorrow
   const tomorrowTokens = isArabic
-    ? ['بكره', 'غدا', 'الغد', 'غداً']
+    ? ['بكره', 'بكرة', 'غدا', 'غداً', 'الغد', 'باكر']
     : ['tomorrow'];
   for (const t of tomorrowTokens) {
     const reg = new RegExp(`(^|\\s)${t}(\\s|$)`, 'i');
@@ -249,7 +403,7 @@ export function parseTaskCreationCommand(
 
   // Check yesterday
   if (!dateFound) {
-    const yesterdayTokens = isArabic ? ['امس', 'أمس', 'البارحه', 'البارحة'] : ['yesterday'];
+    const yesterdayTokens = isArabic ? ['امس', 'أمس', 'الامس', 'الأمس', 'البارحه', 'البارحة'] : ['yesterday'];
     for (const y of yesterdayTokens) {
       const reg = new RegExp(`(^|\\s)${y}(\\s|$)`, 'i');
       if (reg.test(rawBody)) {
@@ -277,8 +431,65 @@ export function parseTaskCreationCommand(
     }
   }
 
-  // Extract priority: high, medium, low (default: medium)
+  // Check weekdays
+  if (!dateFound) {
+    if (isArabic) {
+      const weekdayTokensArabic: Array<{ tokens: string[]; dayIndex: number }> = [
+        { tokens: ['السبت'], dayIndex: 6 },
+        { tokens: ['الاحد', 'الأحد'], dayIndex: 0 },
+        { tokens: ['الاثنين', 'الإثنين', 'التنين'], dayIndex: 1 },
+        { tokens: ['الثلاثاء', 'التلات'], dayIndex: 2 },
+        { tokens: ['الاربعاء', 'الأربعاء', 'الاربع'], dayIndex: 3 },
+        { tokens: ['الخميس'], dayIndex: 4 },
+        { tokens: ['الجمعة', 'الجمعه'], dayIndex: 5 },
+      ];
+      for (const w of weekdayTokensArabic) {
+        for (const token of w.tokens) {
+          const reg = new RegExp(`(^|\\s)(?:يوم\\s+)?${token}(?:\\s+القادم|\\s+الجاي)?(\\s|$)`, 'i');
+          if (reg.test(rawBody)) {
+            targetDate = getNextWeekdayDate(w.dayIndex);
+            rawBody = rawBody.replace(reg, ' ').trim();
+            dateFound = true;
+            break;
+          }
+        }
+        if (dateFound) break;
+      }
+    } else {
+      const weekdayTokensEnglish: Array<{ tokens: string[]; dayIndex: number }> = [
+        { tokens: ['sunday'], dayIndex: 0 },
+        { tokens: ['monday'], dayIndex: 1 },
+        { tokens: ['tuesday'], dayIndex: 2 },
+        { tokens: ['wednesday'], dayIndex: 3 },
+        { tokens: ['thursday'], dayIndex: 4 },
+        { tokens: ['friday'], dayIndex: 5 },
+        { tokens: ['saturday'], dayIndex: 6 },
+      ];
+      for (const w of weekdayTokensEnglish) {
+        for (const token of w.tokens) {
+          const reg = new RegExp(`(^|\\s)(?:on\\s+)?${token}(?:\\s+next)?(\\s|$)`, 'i');
+          if (reg.test(rawBody)) {
+            targetDate = getNextWeekdayDate(w.dayIndex);
+            rawBody = rawBody.replace(reg, ' ').trim();
+            dateFound = true;
+            break;
+          }
+        }
+        if (dateFound) break;
+      }
+    }
+  }
+
+  // Strip connector words like "to", "ان", "بـ"
+  rawBody = rawBody.replace(/^(to\s+|ان\s+|بـ|بأن\s+|بانه\s+|بان\s+|ب\s+)/i, '').trim();
+
+  // Extract priority: high, medium, low (default: medium or prefix-specified)
   let priority: TaskPriority = 'medium';
+  if (matchedPrefix.includes('high-priority') || matchedPrefix.includes('high priority')) {
+    priority = 'high';
+  } else if (matchedPrefix.includes('low-priority') || matchedPrefix.includes('low priority')) {
+    priority = 'low';
+  }
 
   const highTokens = isArabic
     ? [
@@ -1836,6 +2047,81 @@ export function parseCommand(
     return { isCommand: true, command };
   }
 
+  // Check for explicit goal creation command
+  const goalPayload = parseGoalCreationCommand(input);
+  if (goalPayload) {
+    const command: NOVOCommand = {
+      rawInput: input,
+      action: 'create_goal',
+      goalPayload,
+      confidence: 0.95,
+      feedbackAr: `مقترح هدف جديد: ${goalPayload.title}`,
+      feedbackEn: `Goal Proposal: ${goalPayload.title}`,
+    };
+    return { isCommand: true, command };
+  }
+
   // Uncertain recognition -> do nothing
   return { isCommand: false };
+}
+
+/**
+ * Parses explicit goal creation commands deterministically.
+ */
+export function parseGoalCreationCommand(
+  input: string
+): CreateGoalCommandPayload | null {
+  if (!input || typeof input !== 'string') return null;
+
+  if (isConversational(input)) {
+    return null;
+  }
+
+  const rawTrimmed = input.trim();
+  const normalized = normalizeText(rawTrimmed);
+
+  let matchedPrefix = '';
+
+  for (const prefix of ARABIC_GOAL_PREFIXES) {
+    if (normalized === prefix || normalized.startsWith(prefix + ' ') || normalized.startsWith(prefix + ':')) {
+      matchedPrefix = prefix;
+      break;
+    }
+  }
+
+  if (!matchedPrefix) {
+    for (const prefix of ENGLISH_GOAL_PREFIXES) {
+      if (normalized === prefix || normalized.startsWith(prefix + ' ') || normalized.startsWith(prefix + ':')) {
+        matchedPrefix = prefix;
+        break;
+      }
+    }
+  }
+
+  if (!matchedPrefix) {
+    return null;
+  }
+
+  const prefixWordsCount = matchedPrefix.trim().split(/\s+/).length;
+  const rawWords = rawTrimmed.split(/\s+/);
+  let rawBody = rawWords.slice(prefixWordsCount).join(' ').replace(/^[:\-–—\s]+/, '').trim();
+
+  // Strip connector words like "to", "ان", "بأن", "بان"
+  rawBody = rawBody.replace(/^(to\s+|ان\s+|بأن\s+|بانه\s+|بان\s+)/i, '').trim();
+
+  let title = rawBody
+    .replace(/^[:\-–—\s]+/, '')
+    .replace(/[:\-–—.,!?;:\s]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!title || title.length < 2) {
+    return null;
+  }
+
+  return {
+    title,
+    description: '',
+    initialProgress: 0,
+  };
 }
