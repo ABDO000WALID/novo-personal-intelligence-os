@@ -3,6 +3,10 @@ import {
   getLocalDateString,
   formatDailyBriefingFeedback,
 } from '../commands/commandParser';
+import {
+  isPlausiblyActionShaped,
+  classifyConversationalIntent,
+} from './conversationalIntent';
 import { buildAISystemContext } from '../intelligence/contextBuilder';
 import { aiProviderRegistry } from './aiProvider';
 import {
@@ -853,6 +857,58 @@ export class AIOrchestrator {
           retryable: false,
         },
       };
+    }
+
+    // 2.5. Gate 18.2: Conversational Intent Detection (AI-assisted fallback for plausibly action-shaped inputs)
+    if (isPlausiblyActionShaped(trimmed)) {
+      const isArabic = /[\u0600-\u06FF]/.test(trimmed);
+      const classification = await classifyConversationalIntent({
+        message: trimmed,
+        language: request.language || (isArabic ? 'ar' : 'en'),
+        activeProvider,
+        context: request.context,
+        timeoutMs: 4000,
+      });
+
+      if (classification.isValid && classification.intent === 'create_task') {
+        const proposalId = `prop-ai-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        return {
+          handledAsCommand: true,
+          taskProposal: {
+            id: proposalId,
+            originatingMessageId: request.messageId,
+            source: 'conversational_ai',
+            title: classification.extractedTitle,
+            priority: classification.suggestedPriority,
+            date: classification.suggestedDate || getLocalDateString(0),
+            status: 'pending',
+          },
+          commandFeedback: {
+            ar: `مقترح إضافة مهمة: "${classification.extractedTitle}"`,
+            en: `Proposed Task: "${classification.extractedTitle}"`,
+          },
+        };
+      }
+
+      if (classification.isValid && classification.intent === 'create_goal') {
+        const proposalId = `gcreate-ai-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        return {
+          handledAsCommand: true,
+          goalProposal: {
+            id: proposalId,
+            originatingMessageId: request.messageId,
+            title: classification.extractedTitle,
+            description: '',
+            initialProgress: 0,
+            status: 'pending',
+          },
+          commandFeedback: {
+            ar: `مقترح إضافة هدف: "${classification.extractedTitle}"`,
+            en: `Proposed Goal: "${classification.extractedTitle}"`,
+          },
+        };
+      }
+      // If classification is 'none', low confidence, or invalid -> fails closed to normal conversational chat below
     }
 
     // 3. Prepare AI Request Context

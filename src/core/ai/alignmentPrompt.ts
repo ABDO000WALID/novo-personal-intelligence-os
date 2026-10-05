@@ -182,7 +182,7 @@ export function validateAlignmentAIResponse(
 /**
  * Isolated context with zero private/sensitive fields to pass to the provider.
  */
-function createSafeIsolatedContext(): NOVOContext {
+export function createSafeIsolatedContext(): NOVOContext {
   const emptyFinance: FinanceSummary = {
     totalIncome: 0,
     totalExpenses: 0,

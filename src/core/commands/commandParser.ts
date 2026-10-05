@@ -209,7 +209,7 @@ const ENGLISH_GOAL_PREFIXES = [
 /**
  * Detects if the message is a conversational or informational query rather than an explicit command.
  */
-function isConversational(text: string): boolean {
+export function isConversational(text: string): boolean {
   const norm = normalizeText(text);
   const conversationalPhrases = [
     'كيف',

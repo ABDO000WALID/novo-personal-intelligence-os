@@ -1,5 +1,6 @@
 import express from 'express';
 import { setupLiveTransport } from './server/liveTransport.ts';
+import { requireAuth, rateLimiter, AuthenticatedRequest } from './server/authMiddleware.ts';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -167,8 +168,9 @@ async function startServer() {
 
   app.use(express.json({ limit: '2mb' }));
 
-  app.post('/api/ai/chat', async (req, res) => {
+  app.post('/api/ai/chat', requireAuth, rateLimiter, async (req: AuthenticatedRequest, res) => {
     const requestId = req.headers['x-request-id'] || crypto.randomUUID();
+    const uid = req.user?.uid || 'unknown';
     const startTime = Date.now();
     
     try {
@@ -191,7 +193,7 @@ async function startServer() {
       const envModel = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
       
       const modelsToTry = getHealthyModels(availableModels, envModel);
-      console.log(`[MODEL ROUTER] req=${requestId} available=${availableModels.length} healthy=${modelsToTry.length} preferred=${modelsToTry[0] || 'none'}`);
+      console.log(`[MODEL ROUTER] req=${requestId} uid=${uid} available=${availableModels.length} healthy=${modelsToTry.length} preferred=${modelsToTry[0] || 'none'}`);
 
       if (modelsToTry.length === 0) {
         return res.status(503).json({
@@ -237,7 +239,7 @@ async function startServer() {
             return;
           }
 
-          console.log(`[AI ATTEMPT] requestId=${requestId} model=${currentModel} attempt=${attempt}`);
+          console.log(`[AI ATTEMPT] requestId=${requestId} uid=${uid} model=${currentModel} attempt=${attempt}`);
           
           // Basic abort controller
           const abortController = new AbortController();
@@ -265,7 +267,7 @@ async function startServer() {
 
           unmarkModelProbing(currentModel);
           reportModelSuccess(currentModel);
-          console.log(`[AI SUCCESS] requestId=${requestId} model=${currentModel} duration=${Date.now() - startTime}ms`);
+          console.log(`[AI SUCCESS] requestId=${requestId} uid=${uid} model=${currentModel} duration=${Date.now() - startTime}ms`);
           return res.json({
             text: response.text
           });
@@ -299,7 +301,7 @@ async function startServer() {
              statusCode = 500; errorCode = 'INVALID_RESPONSE'; errorMessage = 'Model returned an empty response.';
           }
 
-          console.log(`[AI ATTEMPT] requestId=${requestId} model=${currentModel} attempt=${attempt} status=${statusCode} duration=${duration}ms`);
+          console.log(`[AI ATTEMPT] requestId=${requestId} uid=${uid} model=${currentModel} attempt=${attempt} status=${statusCode} duration=${duration}ms`);
 
           reportModelFailure(currentModel, statusCode, errStr);
 
@@ -325,7 +327,7 @@ async function startServer() {
         }
       }
 
-      console.log(`[AI REQUEST] id=${requestId} status=FAILED finalCode=${finalError ? finalError.code : 'UNKNOWN'} duration=${Date.now() - startTime}ms`);
+      console.log(`[AI REQUEST] id=${requestId} uid=${uid} status=FAILED finalCode=${finalError ? finalError.code : 'UNKNOWN'} duration=${Date.now() - startTime}ms`);
       return res.status(finalError ? finalError.status : 500).json({
         error: { 
           code: finalError ? finalError.code : 'SERVER_ERROR', 

@@ -5,6 +5,9 @@ import {
 } from './aiTypes';
 import { AIProvider } from './aiProvider';
 import { NOVOContext } from '../intelligence/intelligenceTypes';
+import { useAuthStore } from '../auth/authStore';
+import { auth } from '../auth/firebase';
+import { signInAnonymously } from 'firebase/auth';
 
 export class GeminiServerProvider implements AIProvider {
   id = 'gemini-server';
@@ -39,12 +42,38 @@ export class GeminiServerProvider implements AIProvider {
     }
 
     try {
+      let token: string | null = null;
+      let user = useAuthStore.getState().user || auth?.currentUser;
+
+      if (!user && auth) {
+        try {
+          const cred = await signInAnonymously(auth);
+          user = cred.user;
+        } catch {
+          // If auto-init anonymous auth fails, proceed; server will cleanly respond with 401
+        }
+      }
+
+      if (user) {
+        try {
+          token = await user.getIdToken();
+        } catch (tokenErr) {
+          console.error('[GeminiServerProvider] Failed to get ID token:', tokenErr);
+        }
+      }
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-request-id': crypto.randomUUID(),
+      };
+
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-request-id': crypto.randomUUID(),
-        },
+        headers,
         body: JSON.stringify({
           prompt,
           context: options?.systemInstruction,
@@ -62,7 +91,21 @@ export class GeminiServerProvider implements AIProvider {
         let retryable = data?.error?.retryable ?? true;
         let messageAr = data?.error?.messageAr;
 
-        if (errCode === 'MODEL_NOT_AVAILABLE') {
+        if (response.status === 401 || errCode === 'UNAUTHENTICATED') {
+          throw {
+            code: 'UNAUTHENTICATED',
+            message: errMessage || 'Authentication required to use AI chat.',
+            messageAr: 'يجب تسجيل الدخول لاستخدام المحادثة الذكية.',
+            retryable: false,
+          };
+        } else if (response.status === 429 || errCode === 'RATE_LIMITED') {
+          throw {
+            code: 'RATE_LIMITED',
+            message: errMessage || 'Rate limit exceeded. Please wait a moment.',
+            messageAr: messageAr || 'تم تجاوز حد الطلبات المسموح به. يرجى الانتظار قليلاً ثم المحاولة مرة أخرى.',
+            retryable: true,
+          };
+        } else if (errCode === 'MODEL_NOT_AVAILABLE') {
           retryable = false;
           messageAr = messageAr || 'نموذج الذكاء الاصطناعي المحدد غير متاح حالياً. تحقق من إعداد GEMINI_MODEL.';
         } else if (errCode === 'PROVIDER_UNAVAILABLE') {

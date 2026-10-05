@@ -4,8 +4,14 @@ import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { useAuthStore } from '../../core/auth/authStore';
-import { auth } from '../../core/auth/firebase';
-import { signInAnonymously, signOut } from 'firebase/auth';
+import {
+  signInAnonymousUser,
+  signInWithEmail,
+  signUpWithEmail,
+  linkAnonymousWithEmail,
+  signOutUser,
+  getLocalizedAuthError,
+} from '../../core/auth/authService';
 import {
   backupService,
   BackupStats,
@@ -43,6 +49,72 @@ export function SettingsView() {
   const { language, setLanguage } = useApp();
   const isAr = language === 'ar';
   const { user: authUser, loading: authLoading } = useAuthStore();
+
+  // Auth Form State
+  const [authMode, setAuthMode] = useState<'none' | 'link' | 'signin' | 'signup'>('none');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+
+  const handleSignInAnonymous = async () => {
+    try {
+      setAuthSubmitting(true);
+      setAuthError(null);
+      await signInAnonymousUser();
+      setAuthMode('none');
+    } catch (err) {
+      setAuthError(getLocalizedAuthError(err, language));
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authEmail.trim() || !authPassword) {
+      setAuthError(isAr ? 'يرجى ملء جميع الحقول المطلوبة' : 'Please fill in all required fields');
+      return;
+    }
+    if (authPassword.length < 6) {
+      setAuthError(getLocalizedAuthError('auth/weak-password', language));
+      return;
+    }
+
+    try {
+      setAuthSubmitting(true);
+      setAuthError(null);
+      if (authMode === 'link') {
+        await linkAnonymousWithEmail(authEmail, authPassword, authUser);
+      } else if (authMode === 'signup') {
+        await signUpWithEmail(authEmail, authPassword);
+      } else if (authMode === 'signin') {
+        await signInWithEmail(authEmail, authPassword);
+      }
+      setAuthMode('none');
+      setAuthEmail('');
+      setAuthPassword('');
+    } catch (err) {
+      setAuthError(getLocalizedAuthError(err, language));
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      setAuthSubmitting(true);
+      setAuthError(null);
+      await signOutUser();
+      setAuthMode('none');
+      setAuthEmail('');
+      setAuthPassword('');
+    } catch (err) {
+      setAuthError(getLocalizedAuthError(err, language));
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
 
   // Storage stats
   const [stats, setStats] = useState<BackupStats | null>(null);
@@ -151,58 +223,233 @@ export function SettingsView() {
       </div>
 
       <div className="space-y-4">
-        {/* Firebase Authentication Testing Card */}
+        {/* User Account & Workspace Identity Card */}
         <Card className="space-y-4">
           <div className="flex items-center justify-between border-b border-zinc-800/60 pb-3">
             <div className="flex items-center gap-2.5">
               <UserIcon className="w-4 h-4 text-violet-400" />
               <div>
                 <h2 className="text-sm font-medium text-zinc-200">
-                  {isAr ? 'حساب المستخدم' : 'User Account'}
+                  {isAr ? 'حساب المستخدم ومساحة العمل' : 'User Account & Workspace'}
                 </h2>
                 <p className="text-xs text-zinc-500">
-                  {isAr ? 'إدارة حالة تسجيل الدخول' : 'Authentication status and testing'}
+                  {isAr ? 'إدارة الهوية وترقية مساحة العمل' : 'Identity and workspace management'}
                 </p>
               </div>
             </div>
-            {authLoading && (
+            {authLoading ? (
               <span className="text-xs text-zinc-500">{isAr ? 'جاري التحميل...' : 'Loading...'}</span>
+            ) : authUser ? (
+              <Badge variant={authUser.isAnonymous ? 'outline' : 'violet'}>
+                {authUser.isAnonymous
+                  ? (isAr ? 'حساب ضيف مؤقت' : 'Temporary Guest Account')
+                  : (isAr ? 'حساب دائم' : 'Permanent Account')}
+              </Badge>
+            ) : (
+              <Badge variant="default">
+                {isAr ? 'غير مسجل الدخول' : 'Not Signed In'}
+              </Badge>
             )}
           </div>
-          <div className="flex items-center justify-between">
-            <div className="text-xs text-zinc-300">
-              {authUser ? (
-                <span>
-                  {isAr ? 'مسجل الدخول كـ: ' : 'Signed in as: '}{' '}
-                  <span className="font-mono text-violet-400">{authUser.uid}</span>
-                </span>
-              ) : (
-                <span className="text-zinc-500">
-                  {isAr ? 'غير مسجل الدخول' : 'Not signed in'}
-                </span>
+
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-zinc-300">
+                {authUser ? (
+                  authUser.isAnonymous ? (
+                    <span className="text-zinc-400">
+                      {isAr
+                        ? 'أنت تعمل حالياً في مساحة عمل كضيف. البيانات محفوظة محلياً.'
+                        : 'Working in a guest workspace. Data is stored locally.'}
+                    </span>
+                  ) : (
+                    <span>
+                      {isAr ? 'مسجل الدخول كـ: ' : 'Signed in as: '}{' '}
+                      <span className="font-medium text-zinc-200">{authUser.email || (isAr ? 'حساب دائم' : 'Permanent User')}</span>
+                    </span>
+                  )
+                ) : (
+                  <span className="text-zinc-500">
+                    {isAr ? 'غير مسجل الدخول' : 'Not signed in'}
+                  </span>
+                )}
+              </div>
+
+              {authMode === 'none' && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {!authUser ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleSignInAnonymous}
+                        disabled={authSubmitting || authLoading}
+                      >
+                        {isAr ? 'دخول كضيف (مجهول)' : 'Continue as Guest'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        onClick={() => { setAuthMode('signin'); setAuthError(null); }}
+                        disabled={authSubmitting || authLoading}
+                      >
+                        {isAr ? 'تسجيل الدخول / إنشاء حساب' : 'Sign In / Register'}
+                      </Button>
+                    </>
+                  ) : authUser.isAnonymous ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        onClick={() => { setAuthMode('link'); setAuthError(null); }}
+                        disabled={authSubmitting || authLoading}
+                      >
+                        {isAr ? 'ترقية / ربط مساحة العمل' : 'Upgrade / Link this workspace'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => { setAuthMode('signin'); setAuthError(null); }}
+                        disabled={authSubmitting || authLoading}
+                      >
+                        {isAr ? 'تسجيل الدخول بحساب آخر' : 'Sign in to another account'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleSignOut}
+                        disabled={authSubmitting || authLoading}
+                      >
+                        {isAr ? 'تسجيل الخروج' : 'Sign Out'}
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleSignOut}
+                      disabled={authSubmitting || authLoading}
+                    >
+                      {isAr ? 'تسجيل الخروج' : 'Sign Out'}
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
-            <div className="flex gap-2">
-              {!authUser ? (
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  onClick={() => auth && signInAnonymously(auth)}
-                  disabled={!auth || authLoading}
-                >
-                  {isAr ? 'تسجيل دخول مجهول' : 'Sign in (Anonymous)'}
-                </Button>
-              ) : (
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  onClick={() => auth && signOut(auth)}
-                  disabled={!auth || authLoading}
-                >
-                  {isAr ? 'تسجيل الخروج' : 'Sign Out'}
-                </Button>
-              )}
-            </div>
+
+            {/* Inline Auth / Upgrade Form */}
+            {authMode !== 'none' && (
+              <form onSubmit={handleAuthSubmit} className="mt-2 p-3.5 rounded-lg border border-zinc-800 bg-zinc-900/60 space-y-3">
+                <div className="border-b border-zinc-800 pb-2">
+                  <h3 className="text-xs font-semibold text-zinc-200">
+                    {authMode === 'link'
+                      ? (isAr ? 'ترقية وربط مساحة العمل بحساب دائم' : 'Upgrade & Link Workspace to Permanent Account')
+                      : authMode === 'signup'
+                      ? (isAr ? 'إنشاء حساب جديد' : 'Create New Account')
+                      : (isAr ? 'تسجيل الدخول بحساب آخر' : 'Sign In to Account')}
+                  </h3>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    {authMode === 'link'
+                      ? (isAr
+                          ? 'ستظل جميع مهامك وأهدافك وملاحظاتك ومحادثاتك الحالية مرتبطة بحسابك الجديد دون فقدان.'
+                          : 'All your existing tasks, goals, notes, and chats will remain attached to your permanent account.')
+                      : authMode === 'signup'
+                      ? (isAr ? 'أنشئ حساباً دائماً للوصول إلى مساحة العمل الخاصة بك.' : 'Create a permanent account to access your workspace.')
+                      : authUser?.isAnonymous
+                      ? (isAr
+                          ? 'ملاحظة: هذا الإجراء سينقلك إلى مساحة عمل الحساب المسجل بدلاً من بيانات الضيف الحالية.'
+                          : 'Note: This switches to your registered account workspace rather than current guest data.')
+                      : (isAr ? 'أدخل البريد الإلكتروني وكلمة المرور للمتابعة.' : 'Enter your email and password to proceed.')}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] text-zinc-400 mb-1">
+                      {isAr ? 'البريد الإلكتروني' : 'Email Address'}
+                    </label>
+                    <input
+                      type="email"
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      placeholder="user@example.com"
+                      required
+                      className="w-full px-2.5 py-1.5 text-xs bg-zinc-800/80 border border-zinc-700/80 rounded text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-violet-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-zinc-400 mb-1">
+                      {isAr ? 'كلمة المرور (6 أحرف على الأقل)' : 'Password (min. 6 characters)'}
+                    </label>
+                    <input
+                      type="password"
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                      placeholder="••••••••"
+                      minLength={6}
+                      required
+                      className="w-full px-2.5 py-1.5 text-xs bg-zinc-800/80 border border-zinc-700/80 rounded text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-violet-500"
+                    />
+                  </div>
+                </div>
+
+                {authError && (
+                  <div className="p-2 rounded bg-rose-950/40 border border-rose-800/50 text-rose-300 text-xs flex items-center gap-2">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                    <span>{authError}</span>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-zinc-800/60">
+                  <div className="flex items-center gap-2">
+                    {authMode === 'signin' && (
+                      <button
+                        type="button"
+                        onClick={() => { setAuthMode('signup'); setAuthError(null); }}
+                        className="text-[11px] text-violet-400 hover:text-violet-300 hover:underline"
+                      >
+                        {isAr ? 'ليس لديك حساب؟ أنشئ حساباً جديداً' : 'Need an account? Register'}
+                      </button>
+                    )}
+                    {authMode === 'signup' && (
+                      <button
+                        type="button"
+                        onClick={() => { setAuthMode('signin'); setAuthError(null); }}
+                        className="text-[11px] text-violet-400 hover:text-violet-300 hover:underline"
+                      >
+                        {isAr ? 'لديك حساب بالفعل؟ تسجيل الدخول' : 'Already have an account? Sign in'}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => { setAuthMode('none'); setAuthError(null); }}
+                      disabled={authSubmitting}
+                    >
+                      {isAr ? 'إلغاء' : 'Cancel'}
+                    </Button>
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant="primary"
+                      disabled={authSubmitting}
+                    >
+                      {authSubmitting
+                        ? (isAr ? 'جاري المعالجة...' : 'Processing...')
+                        : authMode === 'link'
+                        ? (isAr ? 'تأكيد الترقية والربط' : 'Confirm Upgrade & Link')
+                        : authMode === 'signup'
+                        ? (isAr ? 'إنشاء الحساب' : 'Create Account')
+                        : (isAr ? 'تسجيل الدخول' : 'Sign In')}
+                    </Button>
+                  </div>
+                </div>
+              </form>
+            )}
           </div>
         </Card>
 
