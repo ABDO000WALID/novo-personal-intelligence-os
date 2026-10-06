@@ -9,6 +9,8 @@ import {
   signInWithEmail,
   signUpWithEmail,
   linkAnonymousWithEmail,
+  signInWithGoogle,
+  linkAnonymousWithGoogle,
   signOutUser,
   getLocalizedAuthError,
 } from '../../core/auth/authService';
@@ -62,6 +64,32 @@ export function SettingsView() {
       setAuthSubmitting(true);
       setAuthError(null);
       await signInAnonymousUser();
+      setAuthMode('none');
+    } catch (err) {
+      setAuthError(getLocalizedAuthError(err, language));
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleSignInGoogle = async () => {
+    try {
+      setAuthSubmitting(true);
+      setAuthError(null);
+      await signInWithGoogle();
+      setAuthMode('none');
+    } catch (err) {
+      setAuthError(getLocalizedAuthError(err, language));
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleLinkGoogle = async () => {
+    try {
+      setAuthSubmitting(true);
+      setAuthError(null);
+      await linkAnonymousWithGoogle(authUser);
       setAuthMode('none');
     } catch (err) {
       setAuthError(getLocalizedAuthError(err, language));
@@ -281,6 +309,15 @@ export function SettingsView() {
                     <>
                       <Button
                         size="sm"
+                        variant="primary"
+                        onClick={handleSignInGoogle}
+                        disabled={authSubmitting || authLoading}
+                        className="flex items-center gap-1.5"
+                      >
+                        {isAr ? 'المتابعة باستخدام Google' : 'Continue with Google'}
+                      </Button>
+                      <Button
+                        size="sm"
                         variant="outline"
                         onClick={handleSignInAnonymous}
                         disabled={authSubmitting || authLoading}
@@ -289,7 +326,7 @@ export function SettingsView() {
                       </Button>
                       <Button
                         size="sm"
-                        variant="primary"
+                        variant="ghost"
                         onClick={() => { setAuthMode('signin'); setAuthError(null); }}
                         disabled={authSubmitting || authLoading}
                       >
@@ -301,6 +338,15 @@ export function SettingsView() {
                       <Button
                         size="sm"
                         variant="primary"
+                        onClick={handleLinkGoogle}
+                        disabled={authSubmitting || authLoading}
+                        className="flex items-center gap-1.5"
+                      >
+                        {isAr ? 'ربط حساب Google' : 'Link Google Account'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
                         onClick={() => { setAuthMode('link'); setAuthError(null); }}
                         disabled={authSubmitting || authLoading}
                       >
@@ -362,6 +408,28 @@ export function SettingsView() {
                       : (isAr ? 'أدخل البريد الإلكتروني وكلمة المرور للمتابعة.' : 'Enter your email and password to proceed.')}
                   </p>
                 </div>
+
+                {authMode === 'signin' && (
+                  <div className="pt-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={handleSignInGoogle}
+                      disabled={authSubmitting}
+                      className="w-full flex items-center justify-center gap-2 mb-2"
+                    >
+                      <span>{isAr ? 'تسجيل الدخول باستخدام Google' : 'Sign in with Google'}</span>
+                    </Button>
+                    <div className="relative flex py-1 items-center">
+                      <div className="flex-grow border-t border-zinc-800"></div>
+                      <span className="flex-shrink mx-2 text-[10px] text-zinc-500 uppercase">
+                        {isAr ? 'أو عبر البريد الإلكتروني' : 'Or with Email'}
+                      </span>
+                      <div className="flex-grow border-t border-zinc-800"></div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>

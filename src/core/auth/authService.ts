@@ -4,6 +4,9 @@ import {
   signInWithEmailAndPassword,
   signOut,
   linkWithCredential,
+  linkWithPopup,
+  signInWithPopup,
+  GoogleAuthProvider,
   EmailAuthProvider,
   User,
   Auth,
@@ -27,6 +30,36 @@ export const getLocalizedAuthError = (
   }
 
   const isAr = lang === 'ar';
+
+  if (code.includes('auth/popup-closed-by-user') || code.includes('popup-closed-by-user')) {
+    return isAr
+      ? 'تم إغلاق نافذة تسجيل الدخول قبل إتمام العملية.'
+      : 'Sign-in window was closed before completing the process.';
+  }
+
+  if (code.includes('auth/popup-blocked') || code.includes('popup-blocked')) {
+    return isAr
+      ? 'تم حظر النافذة المنبثقة من قبل المتصفح. يرجى السماح بالنوافذ المنبثقة أو استخدام البريد الإلكتروني.'
+      : 'Pop-up was blocked by your browser. Please allow pop-ups or use email sign-in.';
+  }
+
+  if (code.includes('auth/cancelled-popup-request') || code.includes('cancelled-popup-request')) {
+    return isAr
+      ? 'تم إلغاء عملية تسجيل الدخول لوجود نافذة أخرى قيد التشغيل.'
+      : 'The sign-in request was cancelled because another window is in progress.';
+  }
+
+  if (code.includes('auth/unauthorized-domain') || code.includes('unauthorized-domain')) {
+    return isAr
+      ? 'نطاق التطبيق غير مصرح به في إعدادات مصادقة Firebase.'
+      : 'This application domain is not authorized in Firebase Auth configuration.';
+  }
+
+  if (code.includes('auth/account-exists-with-different-credential') || code.includes('account-exists-with-different-credential')) {
+    return isAr
+      ? 'يوجد حساب بالفعل بهذا البريد الإلكتروني ولكن بطريقة تسجيل دخول مختلفة.'
+      : 'An account already exists with this email using a different sign-in method.';
+  }
 
   if (code.includes('auth/email-already-in-use') || code.includes('email-already-in-use')) {
     return isAr
@@ -181,6 +214,45 @@ export const linkAnonymousWithEmail = async (
   const credential = EmailAuthProvider.credential(trimmedEmail, pass);
   const userCredential = await linkWithCredential(user, credential);
   return userCredential.user;
+};
+
+/**
+ * Sign in using Google OAuth with account selection prompt.
+ */
+export const signInWithGoogle = async (
+  authInstance: Auth | null = auth,
+  popupFn = signInWithPopup
+): Promise<User> => {
+  if (!authInstance) {
+    throw new Error('Firebase Auth is not initialized');
+  }
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  const result = await popupFn(authInstance, provider);
+  return result.user;
+};
+
+/**
+ * Link an existing anonymous account with Google OAuth credentials.
+ * Preserves the exact same Firebase UID.
+ */
+export const linkAnonymousWithGoogle = async (
+  currentUser: User | null = auth?.currentUser || null,
+  authInstance: Auth | null = auth,
+  popupFn = linkWithPopup
+): Promise<User> => {
+  const user = currentUser || authInstance?.currentUser;
+  if (!user) {
+    throw new Error('auth/no-current-user');
+  }
+  if (!user.isAnonymous) {
+    throw new Error('auth/not-anonymous');
+  }
+
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  const result = await popupFn(user, provider);
+  return result.user;
 };
 
 /**
