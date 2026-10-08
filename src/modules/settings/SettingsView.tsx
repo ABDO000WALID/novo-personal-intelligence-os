@@ -14,6 +14,7 @@ import {
   signOutUser,
   getLocalizedAuthError,
 } from '../../core/auth/authService';
+import { useWorkspaceContinuityStore } from '../../core/data/continuity/workspaceContinuityService';
 import {
   backupService,
   BackupStats,
@@ -51,6 +52,17 @@ export function SettingsView() {
   const { language, setLanguage } = useApp();
   const isAr = language === 'ar';
   const { user: authUser, loading: authLoading } = useAuthStore();
+  const {
+    storageState: continuityState,
+    isSyncing: continuitySyncing,
+    lastError: continuityError,
+    checkStatus: checkContinuityStatus,
+    syncWorkspaceToCloud: syncContinuity,
+  } = useWorkspaceContinuityStore();
+
+  useEffect(() => {
+    checkContinuityStatus(authUser);
+  }, [authUser, checkContinuityStatus]);
 
   // Auth Form State
   const [authMode, setAuthMode] = useState<'none' | 'link' | 'signin' | 'signup'>('none');
@@ -268,11 +280,27 @@ export function SettingsView() {
             {authLoading ? (
               <span className="text-xs text-zinc-500">{isAr ? 'جاري التحميل...' : 'Loading...'}</span>
             ) : authUser ? (
-              <Badge variant={authUser.isAnonymous ? 'outline' : 'violet'}>
-                {authUser.isAnonymous
-                  ? (isAr ? 'حساب ضيف مؤقت' : 'Temporary Guest Account')
-                  : (isAr ? 'حساب دائم' : 'Permanent Account')}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant={authUser.isAnonymous ? 'outline' : 'violet'}>
+                  {authUser.isAnonymous
+                    ? (isAr ? 'حساب ضيف مؤقت' : 'Temporary Guest Account')
+                    : (isAr ? 'حساب دائم' : 'Permanent Account')}
+                </Badge>
+                {!authUser.isAnonymous && (
+                  <Badge
+                    variant={continuityState === 'cloud_synced' ? 'violet' : 'outline'}
+                    className={continuityState === 'failed' ? 'border-rose-700/60 text-rose-300' : ''}
+                  >
+                    {continuityState === 'cloud_synced'
+                      ? (isAr ? 'متصل بالسحابة' : 'Cloud Synced')
+                      : continuityState === 'in_progress'
+                      ? (isAr ? 'جاري المزامنة...' : 'Sync In Progress...')
+                      : continuityState === 'failed'
+                      ? (isAr ? 'فشلت المزامنة' : 'Sync Failed')
+                      : (isAr ? 'مساحة عمل محلية' : 'Local Workspace')}
+                  </Badge>
+                )}
+              </div>
             ) : (
               <Badge variant="default">
                 {isAr ? 'غير مسجل الدخول' : 'Not Signed In'}
@@ -370,18 +398,55 @@ export function SettingsView() {
                       </Button>
                     </>
                   ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleSignOut}
-                      disabled={authSubmitting || authLoading}
-                    >
-                      {isAr ? 'تسجيل الخروج' : 'Sign Out'}
-                    </Button>
+                    <>
+                      {continuityState === 'local' && (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          onClick={async () => {
+                            await syncContinuity(authUser);
+                          }}
+                          disabled={continuitySyncing || authSubmitting || authLoading}
+                          className="flex items-center gap-1.5"
+                        >
+                          <Database className="w-3.5 h-3.5" />
+                          <span>{isAr ? 'مزامنة مساحة العمل مع السحابة' : 'Sync Workspace to Cloud'}</span>
+                        </Button>
+                      )}
+                      {continuityState === 'failed' && (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          onClick={async () => {
+                            await syncContinuity(authUser);
+                          }}
+                          disabled={continuitySyncing || authSubmitting || authLoading}
+                          className="flex items-center gap-1.5"
+                        >
+                          <Database className="w-3.5 h-3.5" />
+                          <span>{isAr ? 'إعادة محاولة المزامنة' : 'Retry Sync to Cloud'}</span>
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleSignOut}
+                        disabled={authSubmitting || authLoading}
+                      >
+                        {isAr ? 'تسجيل الخروج' : 'Sign Out'}
+                      </Button>
+                    </>
                   )}
                 </div>
               )}
             </div>
+
+            {!authUser?.isAnonymous && continuityState === 'failed' && (
+              <div className="p-2.5 rounded bg-rose-950/40 border border-rose-800/50 text-rose-300 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                <span>{isAr ? 'تعذرت المزامنة السحابية. يرجى إعادة المحاولة.' : 'Cloud sync could not be completed. Please try again.'}</span>
+              </div>
+            )}
 
             {/* Inline Auth / Upgrade Form */}
             {authMode !== 'none' && (
