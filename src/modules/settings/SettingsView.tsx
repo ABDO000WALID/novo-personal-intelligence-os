@@ -399,7 +399,7 @@ export function SettingsView() {
                     </>
                   ) : (
                     <>
-                      {continuityState === 'local' && (
+                      {(continuityState === 'local' || continuityState === 'guest') && (
                         <Button
                           size="sm"
                           variant="primary"

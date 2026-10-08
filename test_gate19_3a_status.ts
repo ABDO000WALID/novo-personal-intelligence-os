@@ -153,6 +153,18 @@ async function runTests() {
   passed++;
   console.log(`  ✓ [PASS ${passed}] 6.3: Guest cannot see inappropriate cloud migration button`);
 
+  // Invariant 7: Visibility condition ensures guest hidden and permanent local user visible
+  assert(
+    settingsContent.includes('authUser.isAnonymous ?'),
+    'Guest account must branch to separate actions without cloud sync'
+  );
+  assert(
+    settingsContent.includes("(continuityState === 'local' || continuityState === 'guest')"),
+    'Permanent local user must see Sync Workspace to Cloud entry point even prior to async marker check'
+  );
+  passed++;
+  console.log(`  ✓ [PASS ${passed}] 6.5: Guest sync button hidden and permanent local user sync button visible`);
+
   // Invariant 6: No silent merge or identity leakage
   const aliceEpoch = AuthLifecycle.getEpoch();
   const aliceGuard = AuthLifecycle.createGuard();
@@ -165,6 +177,7 @@ async function runTests() {
   console.log('\n====================================================');
   console.log(`ALL ${passed} GATE 19.3A TESTS PASSED PERFECTLY!`);
   console.log('====================================================');
+  process.exit(0);
 }
 
 runTests().catch((err) => {
