@@ -186,15 +186,28 @@ async function runTests() {
   if (mockDb['users/uid-123/tasks']['legacy_t1'] || mockDb['users/null/tasks']) throw new Error("MIG-20 Failed: Legacy data migrated.");
   console.log("✅ [PASS] MIG-20: Legacy unscoped LocalStorage data is untouched.");
 
-  // MIG-05, MIG-06, MIG-07
-  mockDb['users/uid-123/tasks']['remote_t1'] = { id: 'remote_t1', title: 'Remote' };
+  // MIG-05: Repeated migration is idempotent (no duplicates, identical cloud data safe)
   mockDb['users/uid-123/metadata'] = { migration: { status: 'COMPLETED' } };
   await MigrationService.migrateCurrentUserToFirestore();
   const taskIds = Object.keys(mockDb['users/uid-123/tasks']);
-  if (taskIds.length !== 2) throw new Error(`MIG-05/07 Failed: Expected 2 tasks, got ${taskIds.length}`);
-  if (mockDb['users/uid-123/metadata']['migration'].status !== 'COMPLETED') throw new Error("MIG-06 Failed: Marker changed incorrectly.");
-  console.log("✅ [PASS] MIG-05: Repeated migration is idempotent (no duplicates).");
-  console.log("✅ [PASS] MIG-06 & MIG-07: Remote COMPLETED merges with existing remote documents.");
+  if (taskIds.length !== 1) throw new Error(`MIG-05 Failed: Expected 1 task, got ${taskIds.length}`);
+  if (mockDb['users/uid-123/metadata']['migration'].status !== 'COMPLETED') throw new Error("MIG-05 Failed: Marker changed incorrectly.");
+  console.log("✅ [PASS] MIG-05: Repeated migration is idempotent (no duplicates, identical records safe).");
+
+  // MIG-06 & MIG-07: Remote-only document fails closed (does not merge or overwrite)
+  mockDb['users/uid-123/tasks']['remote_t1'] = { id: 'remote_t1', title: 'Remote' };
+  let remoteOnlyBlocked = false;
+  try {
+    await MigrationService.migrateCurrentUserToFirestore();
+  } catch (e: any) {
+    if (e.name === 'PreexistingCloudDataConflictError') {
+      remoteOnlyBlocked = true;
+    }
+  }
+  if (!remoteOnlyBlocked) throw new Error("MIG-06/07 Failed: Remote-only document did not fail closed.");
+  if (mockDb['users/uid-123/metadata']['migration'].status !== 'FAILED') throw new Error("MIG-06 Failed: Marker not set to FAILED on remote-only record.");
+  if (mockDb['users/uid-123/tasks']['remote_t1'].title !== 'Remote') throw new Error("MIG-07 Failed: Remote-only document was mutated.");
+  console.log("✅ [PASS] MIG-06 & MIG-07: Remote-only record detected and fails closed without overwriting or silently merging.");
 
   // MIG-14 (Partial failure & recovery) + MIG-08 + MIG-09
   resetMocks();

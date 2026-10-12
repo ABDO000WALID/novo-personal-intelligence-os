@@ -15,6 +15,13 @@ import {
   getLocalizedAuthError,
 } from '../../core/auth/authService';
 import { useWorkspaceContinuityStore } from '../../core/data/continuity/workspaceContinuityService';
+import { useTaskStore } from '../../core/state/taskStore';
+import { useGoalStore } from '../../core/state/goalStore';
+import { useNoteStore } from '../../core/state/noteStore';
+import { useFocusStore } from '../../core/state/focusStore';
+import { useMoneyStore } from '../../core/state/moneyStore';
+import { useChatStore } from '../../core/state/chatStore';
+import { useKnowledgeStore } from '../../core/state/knowledgeStore';
 import {
   backupService,
   BackupStats,
@@ -48,6 +55,43 @@ import {
 } from 'lucide-react';
 import { Gate174Tier2FixtureSection } from './components/Gate174Tier2FixtureSection';
 
+function getSanitizedContinuityError(rawError: string | null, isAr: boolean): string {
+  if (!rawError) {
+    return isAr
+      ? 'تعذرت المزامنة السحابية. يرجى إعادة المحاولة بأمان.'
+      : 'Cloud sync could not be completed. You can safely retry.';
+  }
+  const lower = rawError.toLowerCase();
+  if (lower.includes('conflict') || lower.includes('preexisting') || lower.includes('remote-only')) {
+    return isAr
+      ? 'تم رصد تعارض في السجلات السحابية. تم إيقاف المزامنة بأمان لحماية بياناتك المحلية.'
+      : 'A cloud record conflict was detected. Sync was safely aborted to protect your local data.';
+  }
+  if (lower.includes('network') || lower.includes('connection') || lower.includes('offline') || lower.includes('fetch')) {
+    return isAr
+      ? 'تعذر الاتصال بالخادم السحابي. يرجى التحقق من اتصالك بالإنترنت ثم إعادة المحاولة.'
+      : 'Could not connect to the cloud service. Please check your internet connection and retry.';
+  }
+  if (lower.includes('auth') || lower.includes('identity')) {
+    return isAr
+      ? 'انتهت صلاحية جلسة تسجيل الدخول أو تغيرت الهوية أثناء المزامنة. يرجى إعادة المحاولة.'
+      : 'Authentication session changed during sync. Please verify your account and retry.';
+  }
+  if (lower.includes('in_progress') || lower.includes('lock') || lower.includes('already in progress')) {
+    return isAr
+      ? 'توجد عملية مزامنة أخرى جارية حالياً. يرجى الانتظار لحظات ثم إعادة المحاولة.'
+      : 'Another sync operation is currently in progress. Please wait a moment and retry.';
+  }
+  if (lower.includes('hydration') || lower.includes('load from cloud') || lower.includes('not ready')) {
+    return isAr
+      ? 'تعذر تحميل بعض السجلات السحابية بالكامل. يمكنك إعادة محاولة المزامنة للتحميل مجدداً.'
+      : 'Some cloud records could not be loaded completely. You can retry sync to reload them.';
+  }
+  return isAr
+    ? 'تعذرت المزامنة السحابية. بياناتك المحلية محفوظة بأمان ويمكنك إعادة المحاولة.'
+    : 'Cloud sync could not be completed. Your local data remains safe and you can retry.';
+}
+
 export function SettingsView() {
   const { language, setLanguage } = useApp();
   const isAr = language === 'ar';
@@ -59,6 +103,49 @@ export function SettingsView() {
     checkStatus: checkContinuityStatus,
     syncWorkspaceToCloud: syncContinuity,
   } = useWorkspaceContinuityStore();
+
+  const taskStatus = useTaskStore(s => s.status);
+  const goalStatus = useGoalStore(s => s.status);
+  const noteStatus = useNoteStore(s => s.status);
+  const focusStatus = useFocusStore(s => s.status);
+  const moneyStatus = useMoneyStore(s => s.status);
+  const chatStatus = useChatStore(s => s.status);
+  const knowledgeStatus = useKnowledgeStore(s => s.status);
+
+  const anyStoreError = [taskStatus, goalStatus, noteStatus, focusStatus, moneyStatus, chatStatus, knowledgeStatus].some(
+    s => s === 'error'
+  );
+
+  const [syncFeedback, setSyncFeedback] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleSyncWorkspace = async () => {
+    if (!authUser || authUser.isAnonymous) return;
+    if (continuitySyncing || authSubmitting || authLoading) return;
+
+    setSyncFeedback(null);
+    try {
+      const res = await syncContinuity(authUser);
+      if (res.success) {
+        setSyncFeedback({
+          success: true,
+          message: isAr
+            ? 'تمت مزامنة مساحة العمل مع السحابة بنجاح!'
+            : 'Workspace successfully synced to cloud!',
+        });
+      } else {
+        setSyncFeedback({
+          success: false,
+          message: getSanitizedContinuityError(res.error || continuityError, isAr),
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : null;
+      setSyncFeedback({
+        success: false,
+        message: getSanitizedContinuityError(msg || continuityError, isAr),
+      });
+    }
+  };
 
   useEffect(() => {
     checkContinuityStatus(authUser);
@@ -288,15 +375,27 @@ export function SettingsView() {
                 </Badge>
                 {!authUser.isAnonymous && (
                   <Badge
-                    variant={continuityState === 'cloud_synced' ? 'violet' : 'outline'}
-                    className={continuityState === 'failed' ? 'border-rose-700/60 text-rose-300' : ''}
+                    variant={
+                      continuityState === 'cloud_synced' && !anyStoreError
+                        ? 'violet'
+                        : continuityState === 'failed' || anyStoreError
+                        ? 'outline'
+                        : 'outline'
+                    }
+                    className={
+                      continuityState === 'failed' || anyStoreError
+                        ? 'border-rose-700/60 text-rose-300'
+                        : continuityState === 'cloud_synced' && !anyStoreError
+                        ? 'border-emerald-700/60 text-emerald-300'
+                        : ''
+                    }
                   >
-                    {continuityState === 'cloud_synced'
-                      ? (isAr ? 'متصل بالسحابة' : 'Cloud Synced')
-                      : continuityState === 'in_progress'
+                    {continuityState === 'in_progress' || continuitySyncing
                       ? (isAr ? 'جاري المزامنة...' : 'Sync In Progress...')
-                      : continuityState === 'failed'
+                      : continuityState === 'failed' || anyStoreError
                       ? (isAr ? 'فشلت المزامنة' : 'Sync Failed')
+                      : continuityState === 'cloud_synced'
+                      ? (isAr ? 'متصل بالسحابة' : 'Cloud Synced')
                       : (isAr ? 'مساحة عمل محلية' : 'Local Workspace')}
                   </Badge>
                 )}
@@ -399,13 +498,25 @@ export function SettingsView() {
                     </>
                   ) : (
                     <>
-                      {(continuityState === 'local' || continuityState === 'guest') && (
+                      {/* 1. Sync In Progress State */}
+                      {(continuityState === 'in_progress' || continuitySyncing) && (
                         <Button
                           size="sm"
                           variant="primary"
-                          onClick={async () => {
-                            await syncContinuity(authUser);
-                          }}
+                          disabled
+                          className="flex items-center gap-1.5 opacity-80 cursor-not-allowed"
+                        >
+                          <Database className="w-3.5 h-3.5 animate-spin" />
+                          <span>{isAr ? 'جاري المزامنة السحابية...' : 'Syncing to Cloud...'}</span>
+                        </Button>
+                      )}
+
+                      {/* 2. Local Mode: Initial Sync to Cloud */}
+                      {!continuitySyncing && continuityState === 'local' && (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          onClick={handleSyncWorkspace}
                           disabled={continuitySyncing || authSubmitting || authLoading}
                           className="flex items-center gap-1.5"
                         >
@@ -413,13 +524,13 @@ export function SettingsView() {
                           <span>{isAr ? 'مزامنة مساحة العمل مع السحابة' : 'Sync Workspace to Cloud'}</span>
                         </Button>
                       )}
-                      {continuityState === 'failed' && (
+
+                      {/* 3. Failed State or Hydration Store Error: Retry Sync */}
+                      {!continuitySyncing && (continuityState === 'failed' || anyStoreError) && (
                         <Button
                           size="sm"
                           variant="primary"
-                          onClick={async () => {
-                            await syncContinuity(authUser);
-                          }}
+                          onClick={handleSyncWorkspace}
                           disabled={continuitySyncing || authSubmitting || authLoading}
                           className="flex items-center gap-1.5"
                         >
@@ -427,11 +538,26 @@ export function SettingsView() {
                           <span>{isAr ? 'إعادة محاولة المزامنة' : 'Retry Sync to Cloud'}</span>
                         </Button>
                       )}
+
+                      {/* 4. Healthy Cloud Synced: Verify/Refresh status */}
+                      {!continuitySyncing && continuityState === 'cloud_synced' && !anyStoreError && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleSyncWorkspace}
+                          disabled={continuitySyncing || authSubmitting || authLoading}
+                          className="flex items-center gap-1.5"
+                        >
+                          <Database className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>{isAr ? 'تحقق من المزامنة' : 'Check Sync Status'}</span>
+                        </Button>
+                      )}
+
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={handleSignOut}
-                        disabled={authSubmitting || authLoading}
+                        disabled={continuitySyncing || authSubmitting || authLoading}
                       >
                         {isAr ? 'تسجيل الخروج' : 'Sign Out'}
                       </Button>
@@ -441,10 +567,43 @@ export function SettingsView() {
               )}
             </div>
 
-            {!authUser?.isAnonymous && continuityState === 'failed' && (
-              <div className="p-2.5 rounded bg-rose-950/40 border border-rose-800/50 text-rose-300 text-xs flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
-                <span>{isAr ? 'تعذرت المزامنة السحابية. يرجى إعادة المحاولة.' : 'Cloud sync could not be completed. Please try again.'}</span>
+            {/* Error Banner when failed or store error */}
+            {!authUser?.isAnonymous && (continuityState === 'failed' || anyStoreError) && (
+              <div className="p-2.5 rounded bg-rose-950/40 border border-rose-800/50 text-rose-300 text-xs flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                  <span>{getSanitizedContinuityError(continuityError, isAr)}</span>
+                </div>
+              </div>
+            )}
+
+            {/* In-Progress Banner */}
+            {!authUser?.isAnonymous && (continuityState === 'in_progress' || continuitySyncing) && (
+              <div className="p-2.5 rounded bg-violet-950/40 border border-violet-800/50 text-violet-300 text-xs flex items-center gap-2">
+                <Database className="w-4 h-4 shrink-0 text-violet-400 animate-spin" />
+                <span>
+                  {isAr
+                    ? 'جاري مزامنة مساحة العمل ونقل السجلات إلى السحابة بأمان...'
+                    : 'Syncing workspace and securely migrating records to cloud...'}
+                </span>
+              </div>
+            )}
+
+            {/* Deliberate Action Feedback Banner */}
+            {syncFeedback && (
+              <div
+                className={`p-2.5 rounded text-xs flex items-center gap-2 ${
+                  syncFeedback.success
+                    ? 'bg-emerald-950/40 border border-emerald-800/50 text-emerald-300'
+                    : 'bg-rose-950/40 border border-rose-800/50 text-rose-300'
+                }`}
+              >
+                {syncFeedback.success ? (
+                  <Check className="w-4 h-4 shrink-0 text-emerald-400" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                )}
+                <span>{syncFeedback.message}</span>
               </div>
             )}
 
