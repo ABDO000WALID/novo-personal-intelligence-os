@@ -2,6 +2,22 @@ import { AuthLifecycle } from './src/core/auth/authLifecycle';
 import { useAuthStore } from './src/core/auth/authStore';
 import { handleAuthStateChange, lastUid } from './src/core/auth/initAuth';
 import { useTaskStore } from './src/core/state/taskStore';
+import { MigrationService } from './src/core/data/migration/MigrationService';
+import { setMockFirestore } from './src/core/data/repositories/firebase/firestoreProvider';
+
+// Mock Firestore and migration marker lookup deterministically without live cloud calls
+setMockFirestore({
+  getFirestore: () => ({}),
+  doc: () => '',
+  collection: () => '',
+  getDoc: async () => ({ exists: () => false, data: () => undefined }),
+  getDocs: async () => ({ docs: [] }),
+  setDoc: async () => {},
+  writeBatch: () => ({ set: () => {}, delete: () => {}, commit: async () => {} }),
+  deleteDoc: async () => {},
+});
+
+MigrationService.getMigrationStatus = async () => null;
 
 async function runTests() {
   console.log("=== RUNNING FIREBASE AUTH LIFECYCLE TESTS ===");
@@ -17,7 +33,7 @@ async function runTests() {
   const initialEpoch = AuthLifecycle.getEpoch();
   
   const mockUserA = { uid: 'user_a', email: 'test@a.com' } as any;
-  handleAuthStateChange(mockUserA);
+  await handleAuthStateChange(mockUserA);
 
   state = useAuthStore.getState();
   if (state.user?.uid !== 'user_a' || state.loading !== false) {
@@ -30,7 +46,7 @@ async function runTests() {
   
   // Simulate Firebase auth listener firing (User logs out: A -> null)
   const epochA = AuthLifecycle.getEpoch();
-  handleAuthStateChange(null);
+  await handleAuthStateChange(null);
 
   state = useAuthStore.getState();
   if (state.user !== null) {
@@ -42,11 +58,11 @@ async function runTests() {
   console.log("✅ [PASS] AUTH-FB-03: Sign-out triggers the existing resetAuthIdentity() path.");
   
   // Simulate Firebase auth listener firing (User logs in: null -> B)
-  handleAuthStateChange({ uid: 'user_b' } as any);
+  await handleAuthStateChange({ uid: 'user_b' } as any);
   const epochB = AuthLifecycle.getEpoch();
   
   // A -> B direct transition (bypassing null)
-  handleAuthStateChange({ uid: 'user_c' } as any);
+  await handleAuthStateChange({ uid: 'user_c' } as any);
   if (AuthLifecycle.getEpoch() === epochB) {
     throw new Error('AUTH-FB-04 Failed: A->B transition did not increment epoch.');
   }
@@ -55,7 +71,7 @@ async function runTests() {
 
   // AUTH-FB-06: Stale async operation from User A cannot mutate User B state
   const guard = AuthLifecycle.createGuard();
-  handleAuthStateChange({ uid: 'user_d' } as any);
+  await handleAuthStateChange({ uid: 'user_d' } as any);
   if (!guard.isStale()) {
     throw new Error('AUTH-FB-06 Failed: Guard created in old epoch is not stale.');
   }
@@ -64,7 +80,7 @@ async function runTests() {
   // AUTH-FB-07: Auth listener does not create duplicate reset/initialization behavior.
   // Repeated calls with same UID do not increment epoch
   const currentEpoch = AuthLifecycle.getEpoch();
-  handleAuthStateChange({ uid: 'user_d' } as any); // same user
+  await handleAuthStateChange({ uid: 'user_d' } as any); // same user
   if (AuthLifecycle.getEpoch() !== currentEpoch) {
     throw new Error('AUTH-FB-07 Failed: Redundant listener fires incremented epoch unnecessarily.');
   }
@@ -73,7 +89,7 @@ async function runTests() {
   // Validate that Domain stores are Firebase-agnostic
   // The state of tasks should be cleared on transition because of resetAuthIdentity
   useTaskStore.setState({ tasks: [{ id: '1', title: 'test', completed: false, date: '2025-01-01', priority: 'medium', createdAt: '' }], status: 'ready', error: null, lastUpdated: Date.now() });
-  handleAuthStateChange({ uid: 'user_e' } as any);
+  await handleAuthStateChange({ uid: 'user_e' } as any);
   if (useTaskStore.getState().tasks.length !== 0) {
     throw new Error('AUTH-FB-08 Failed: Domain stores did not clear on auth identity change.');
   }
