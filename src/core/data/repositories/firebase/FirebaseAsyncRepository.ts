@@ -3,11 +3,37 @@ import { AuthLifecycle } from '../../../auth/authLifecycle';
 import { app } from '../../../auth/firebase';
 import { fs } from './firestoreProvider';
 
+/**
+ * Removes properties whose value is strictly undefined, preventing Firestore SDK write rejections.
+ * Preserves null, false, 0, "", empty arrays, and empty objects.
+ */
+export function sanitizeUndefined<V>(val: V): V {
+  if (val === null || typeof val !== 'object') {
+    return val;
+  }
+
+  if (Array.isArray(val)) {
+    return val.map(item => sanitizeUndefined(item)) as unknown as V;
+  }
+
+  const cleanObj: Record<string, any> = {};
+  for (const [k, v] of Object.entries(val as Record<string, any>)) {
+    if (v !== undefined) {
+      cleanObj[k] = sanitizeUndefined(v);
+    }
+  }
+  return cleanObj as V;
+}
+
 export class FirebaseAsyncRepository<T extends { id: string }> implements IAsyncRepository<T> {
   constructor(
     protected collectionName: string,
     protected initialSeed?: () => T[]
   ) {}
+
+  protected sanitizePayload<V>(data: V): V {
+    return sanitizeUndefined(data);
+  }
 
   protected get db() {
     if (!app) throw new Error("Firebase app not initialized");
@@ -78,7 +104,7 @@ export class FirebaseAsyncRepository<T extends { id: string }> implements IAsync
       throw new Error(`Repository operation aborted: Identity changed during create.`);
     }
 
-    await fs.setDoc(docRef, item);
+    await fs.setDoc(docRef, this.sanitizePayload(item));
   }
 
   async update(id: string, changes: Partial<T>): Promise<void> {
@@ -99,7 +125,7 @@ export class FirebaseAsyncRepository<T extends { id: string }> implements IAsync
       throw new Error(`Repository operation aborted: Identity changed during update.`);
     }
 
-    await fs.setDoc(docRef, changes, { merge: true });
+    await fs.setDoc(docRef, this.sanitizePayload(changes), { merge: true });
   }
 
   async delete(id: string): Promise<void> {
@@ -142,7 +168,7 @@ export class FirebaseAsyncRepository<T extends { id: string }> implements IAsync
       const batch = fs.writeBatch(this.db);
       for (const item of chunk) {
         const docRef = fs.doc(this.db, `${colPath}/${item.id}`);
-        batch.set(docRef, item); 
+        batch.set(docRef, this.sanitizePayload(item)); 
       }
       
       if (guard.isStale()) throw new Error(`Repository operation aborted: Identity changed during saveAll upsert.`);
