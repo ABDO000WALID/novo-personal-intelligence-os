@@ -54,12 +54,12 @@ export function generateWeeklyReview(
   const transactions = data.transactions || [];
   const knowledgeItems = data.knowledgeItems || [];
 
-  // Filter items in the current week window (or within last 7 days)
+  // Filter items in the current strict calendar week window
   const isItemThisWeek = (dateStr?: string): boolean => {
     if (!dateStr) return false;
     const time = new Date(dateStr).getTime();
     if (isNaN(time)) return false;
-    return (time >= startTime && time <= endTime) || isWithinDays(dateStr, 7, now);
+    return time >= startTime && time <= endTime;
   };
 
   // 1. Task metrics

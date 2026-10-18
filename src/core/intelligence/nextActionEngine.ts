@@ -37,8 +37,8 @@ const PRIORITY_RANK: Record<string, number> = {
 };
 
 function getPriorityRank(priority?: TaskPriority | string): number {
-  if (!priority) return 1;
-  return PRIORITY_RANK[priority] ?? 1;
+  if (!priority) return PRIORITY_RANK['medium'];
+  return PRIORITY_RANK[priority] ?? PRIORITY_RANK['medium'];
 }
 
 function normalizeDateString(targetDate?: string | Date): string {
@@ -188,8 +188,7 @@ export function determineNextAction(
       t &&
       !t.completed &&
       typeof t.date === 'string' &&
-      /^\d{4}-\d{2}-\d{2}$/.test(t.date) &&
-      t.date < todayStr
+      normalizeDateString(t.date) < todayStr
   );
 
   if (overduePendingTasks.length > 0) {
@@ -211,7 +210,7 @@ export function determineNextAction(
       t &&
       !t.completed &&
       typeof t.date === 'string' &&
-      t.date === todayStr
+      normalizeDateString(t.date) === todayStr
   );
 
   if (todayPendingTasks.length > 0) {
@@ -230,7 +229,7 @@ export function determineNextAction(
   // Only when zero overdue pending tasks and zero pending tasks today.
   // Goals attended today: active goals with at least one task scheduled today (completed or pending).
   const todayTasks = safeTasks.filter(
-    (t) => t && typeof t.date === 'string' && t.date === todayStr
+    (t) => t && typeof t.date === 'string' && normalizeDateString(t.date) === todayStr
   );
   const scheduledGoalIdsToday = new Set<string>();
   for (const t of todayTasks) {
@@ -251,7 +250,7 @@ export function determineNextAction(
           t &&
           !t.completed &&
           typeof t.date === 'string' &&
-          t.date === todayStr &&
+          normalizeDateString(t.date) === todayStr &&
           t.goalId === selectedGoal.id
       );
 

@@ -122,9 +122,14 @@ export function evaluateAttentionRadar(input: AttentionInputState): AttentionRad
   // Condition: incomplete task, task.date < todayStr
   // Sorting: high > medium > low, earlier createdAt, lexical task.id
   // ==========================================
+  const normalizeTaskDate = (d?: string): string => {
+    if (!d) return '';
+    return d.includes('T') ? d.split('T')[0] : d;
+  };
+
   const overdueTasks = tasks.filter((t) => {
     if (!t || t.completed || !t.date) return false;
-    return t.date < todayStr;
+    return normalizeTaskDate(t.date) < todayStr;
   });
 
   if (overdueTasks.length > 0) {
@@ -268,8 +273,8 @@ export function evaluateAttentionRadar(input: AttentionInputState): AttentionRad
   // 2. lexical task.id
   // ==========================================
   const todayPendingTasks = tasks.filter((t) => {
-    if (!t || t.completed || t.date !== todayStr) return false;
-    return true;
+    if (!t || t.completed || !t.date) return false;
+    return normalizeTaskDate(t.date) === todayStr;
   });
 
   const todayHighPriorityTasks = todayPendingTasks.filter((t) => t.priority === 'high');

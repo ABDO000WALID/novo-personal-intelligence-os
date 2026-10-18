@@ -31,18 +31,28 @@ export function getGoalTaskActivity(goalId: string, tasks: Task[]): GoalTaskActi
  * Calculates progress distribution, velocity indicators, and overall goal health status.
  */
 export function analyzeGoals(goals: Goal[], now: Date = new Date()): GoalHealthResult {
-  const totalGoals = goals.length;
-  const completedGoals = goals.filter((g) => g.progress >= 100).length;
+  const safeGoals = Array.isArray(goals) ? goals : [];
+  const totalGoals = safeGoals.length;
+
+  const sanitizeProgress = (g?: Goal): number => {
+    if (!g || typeof g.progress !== 'number' || isNaN(g.progress)) return 0;
+    return Math.min(100, Math.max(0, g.progress));
+  };
+
+  const completedGoals = safeGoals.filter((g) => sanitizeProgress(g) >= 100).length;
   const activeGoals = totalGoals - completedGoals;
 
-  const totalProgress = goals.reduce((acc, g) => acc + Math.min(100, Math.max(0, g.progress)), 0);
+  const totalProgress = safeGoals.reduce((acc, g) => acc + sanitizeProgress(g), 0);
   const averageProgress = totalGoals > 0 ? Math.round(totalProgress / totalGoals) : 0;
 
-  const goalsBelow25 = goals.filter((g) => g.progress < 25).length;
-  const goalsAbove75 = goals.filter((g) => g.progress >= 75 && g.progress < 100).length;
+  const goalsBelow25 = safeGoals.filter((g) => sanitizeProgress(g) < 25).length;
+  const goalsAbove75 = safeGoals.filter((g) => {
+    const p = sanitizeProgress(g);
+    return p >= 75 && p < 100;
+  }).length;
 
-  const recentlyUpdatedGoals = goals.filter((g) =>
-    isWithinDays(g.updatedAt || g.createdAt, 7, now)
+  const recentlyUpdatedGoals = safeGoals.filter((g) =>
+    g && isWithinDays(g.updatedAt || g.createdAt, 7, now)
   ).length;
 
   // Deterministic health classification
@@ -82,7 +92,8 @@ export interface DailyGoalAlignmentResult {
   goalAlignedPriorityTasks: Task[];
 }
 
-function normalizeTargetDate(targetDate: string | Date): string {
+function normalizeTargetDate(targetDate?: string | Date | null): string {
+  if (!targetDate) return '';
   if (typeof targetDate === 'string') {
     if (/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
       return targetDate;
@@ -114,7 +125,7 @@ export function analyzeDailyGoalAlignment(
       g &&
       typeof g.id === 'string' &&
       g.id.trim() !== '' &&
-      (typeof g.progress !== 'number' || g.progress < 100)
+      (typeof g.progress !== 'number' || isNaN(g.progress) || g.progress < 100)
   );
 
   const activeGoalsMap = new Map<string, Goal>();
@@ -123,7 +134,7 @@ export function analyzeDailyGoalAlignment(
   }
 
   const dateStr = normalizeTargetDate(targetDate);
-  const todayTasks = safeTasks.filter((t) => t && t.date === dateStr);
+  const todayTasks = safeTasks.filter((t) => t && normalizeTargetDate(t.date) === dateStr);
   const todayTaskCount = todayTasks.length;
 
   // A task counts as goal-aligned only if it references a valid active goal

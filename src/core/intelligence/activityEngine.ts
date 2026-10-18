@@ -50,8 +50,16 @@ export interface ActivitySourceData {
  */
 export function generateActivityTimeline(
   data: ActivitySourceData,
-  limit: number = 30
+  limit: number = 30,
+  fallbackTime?: string | Date
 ): ActivityItem[] {
+  const fallbackIso =
+    fallbackTime instanceof Date
+      ? fallbackTime.toISOString()
+      : typeof fallbackTime === 'string' && fallbackTime.trim() !== ''
+      ? fallbackTime
+      : '1970-01-01T00:00:00.000Z';
+
   const events: ActivityItem[] = [];
 
   // 1. Task events (Completed & pending tasks)
@@ -66,7 +74,7 @@ export function generateActivityTimeline(
           titleAr: 'إنجاز مهمة',
           description: task.title,
           descriptionAr: task.title,
-          createdAt: task.createdAt || new Date().toISOString(),
+          createdAt: task.createdAt || fallbackIso,
         });
       } else {
         events.push({
@@ -77,7 +85,7 @@ export function generateActivityTimeline(
           titleAr: 'تخطيط مهمة',
           description: task.title,
           descriptionAr: task.title,
-          createdAt: task.createdAt || new Date().toISOString(),
+          createdAt: task.createdAt || fallbackIso,
         });
       }
     }
@@ -94,7 +102,7 @@ export function generateActivityTimeline(
         titleAr: goal.progress >= 100 ? 'تحقيق هدف' : 'تحديث مسار الهدف',
         description: `${goal.title} (${goal.progress}%)`,
         descriptionAr: `${goal.title} (${goal.progress}%)`,
-        createdAt: goal.updatedAt || goal.createdAt || new Date().toISOString(),
+        createdAt: goal.updatedAt || goal.createdAt || fallbackIso,
       });
     }
   }
@@ -110,7 +118,7 @@ export function generateActivityTimeline(
         titleAr: 'جلسة تركيز منجزة',
         description: `${session.duration} minutes of deep focus`,
         descriptionAr: `${session.duration} دقيقة من التركيز العميق`,
-        createdAt: session.completedAt || new Date().toISOString(),
+        createdAt: session.completedAt || fallbackIso,
       });
     }
   }
@@ -127,7 +135,7 @@ export function generateActivityTimeline(
         titleAr: isUpdated ? 'تحديث ملاحظة' : 'تدوين ملاحظة جديدة',
         description: note.title,
         descriptionAr: note.title,
-        createdAt: note.updatedAt || note.createdAt || new Date().toISOString(),
+        createdAt: note.updatedAt || note.createdAt || fallbackIso,
       });
     }
   }
@@ -144,7 +152,7 @@ export function generateActivityTimeline(
         titleAr: isIncome ? 'تسجيل إيراد مالي' : 'تسجيل مصروف',
         description: `${tx.description || tx.category}: $${Math.abs(tx.amount)}`,
         descriptionAr: `${tx.description || tx.category}: $${Math.abs(tx.amount)}`,
-        createdAt: tx.createdAt || new Date().toISOString(),
+        createdAt: tx.createdAt || fallbackIso,
       });
     }
   }
@@ -160,7 +168,7 @@ export function generateActivityTimeline(
         titleAr: item.pinned ? 'تثبيت معرفة استراتيجية' : 'إضافة معرفة للذاكرة',
         description: item.title,
         descriptionAr: item.title,
-        createdAt: item.updatedAt || item.createdAt || new Date().toISOString(),
+        createdAt: item.updatedAt || item.createdAt || fallbackIso,
       });
     }
   }
@@ -177,7 +185,7 @@ export function generateActivityTimeline(
           titleAr: 'جلسة حوار مع NOVO',
           description: conv.title || 'Conversation',
           descriptionAr: conv.title || 'محادثة',
-          createdAt: conv.updatedAt || conv.createdAt || new Date().toISOString(),
+          createdAt: conv.updatedAt || conv.createdAt || fallbackIso,
         });
       }
     }
@@ -189,11 +197,12 @@ export function generateActivityTimeline(
     timestamp: e.timestamp || e.createdAt,
   }));
 
-  // Sort descending by timestamp (newest first)
+  // Sort descending by timestamp (newest first), tie-breaking by id
   const sorted = normalizedEvents.sort((a, b) => {
     const timeA = new Date(a.createdAt).getTime() || 0;
     const timeB = new Date(b.createdAt).getTime() || 0;
-    return timeB - timeA;
+    if (timeB !== timeA) return timeB - timeA;
+    return a.id.localeCompare(b.id);
   });
 
   return sorted.slice(0, limit);
@@ -202,8 +211,12 @@ export function generateActivityTimeline(
 /**
  * Returns recent activity items up to the specified limit (default 15).
  */
-export function getRecentActivity(data: ActivitySourceData, limit: number = 15): ActivityItem[] {
-  return generateActivityTimeline(data, limit);
+export function getRecentActivity(
+  data: ActivitySourceData,
+  limit: number = 15,
+  fallbackTime?: string | Date
+): ActivityItem[] {
+  return generateActivityTimeline(data, limit, fallbackTime);
 }
 
 /**

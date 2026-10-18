@@ -15,6 +15,7 @@ import {
   WorkspaceSnapshot,
   IntelligenceSnapshot,
 } from './intelligenceTypes';
+import { captureWorkspaceSnapshot } from './workspaceSnapshotBuilder';
 import { getTodayString, isDateToday } from './dateUtils';
 import { evaluateWorkspaceIntelligence } from './intelligenceOrchestrator';
 import { useTaskStore } from '../state/taskStore';
@@ -112,20 +113,7 @@ export function buildNOVOContext(
   data: ContextSourceData,
   now: Date = new Date()
 ): NOVOContext {
-  const snapshot: WorkspaceSnapshot = {
-    capturedAt: now.toISOString(),
-    date: getTodayString(now),
-    tasks: data.tasks || [],
-    goals: data.goals || [],
-    notes: data.notes || [],
-    knowledgeItems: data.knowledgeItems || [],
-    transactions: data.transactions || [],
-    sessions: data.sessions || [],
-    conversations: data.conversations || [],
-    activeFocusState: data.activeFocusState ?? null,
-    activeConversationId: data.activeConversationId ?? null,
-  };
-
+  const snapshot = captureWorkspaceSnapshot(data, now);
   const intelligence = evaluateWorkspaceIntelligence(snapshot, now);
   return toNOVOContext(intelligence);
 }

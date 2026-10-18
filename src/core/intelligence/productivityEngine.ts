@@ -8,12 +8,18 @@ import { getTodayString, isDateBeforeToday } from './dateUtils';
  */
 export function analyzeProductivity(tasks: Task[], now: Date = new Date()): ProductivitySummary {
   const todayStr = getTodayString(now);
+  const safeTasks = Array.isArray(tasks) ? tasks : [];
 
-  const totalTasks = tasks.length;
-  const completedTasks = tasks.filter((t) => t.completed).length;
+  const totalTasks = safeTasks.length;
+  const completedTasks = safeTasks.filter((t) => t && t.completed).length;
   const pendingTasks = totalTasks - completedTasks;
 
-  const todayTasksList = tasks.filter((t) => t.date === todayStr);
+  const normalizeDate = (d?: string): string => {
+    if (!d) return '';
+    return d.includes('T') ? d.split('T')[0] : d;
+  };
+
+  const todayTasksList = safeTasks.filter((t) => t && normalizeDate(t.date) === todayStr);
   const todayTasks = todayTasksList.length;
   const todayCompletedTasks = todayTasksList.filter((t) => t.completed).length;
 

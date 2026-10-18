@@ -224,15 +224,20 @@ export function generateSmartInsights(
   }
 
   // 7. Detect Recent Productivity Streak / High Completion
-  if (productivity.todayTasks > 0 && productivity.completionPercentage >= 70) {
+  const todayCompletionPercentage =
+    productivity.todayTasks > 0
+      ? Math.round((productivity.todayCompletedTasks / productivity.todayTasks) * 100)
+      : 0;
+
+  if (productivity.todayTasks > 0 && productivity.todayCompletedTasks > 0 && todayCompletionPercentage >= 70) {
     candidateInsights.push({
       id: 'ins-productivity-streak',
       type: 'success',
       priority: 'low',
       title: 'Productivity Streak',
       titleAr: 'زخم إنتاجية متميز',
-      description: `You completed ${Math.round(productivity.completionPercentage)}% of today's tasks! Outstanding momentum.`,
-      descriptionAr: `أكملت ${Math.round(productivity.completionPercentage)}% من مهام اليوم. استمر في هذا الإنجاز المتزن!`,
+      description: `You completed ${todayCompletionPercentage}% of today's tasks! Outstanding momentum.`,
+      descriptionAr: `أكملت ${todayCompletionPercentage}% من مهام اليوم. استمر في هذا الإنجاز المتزن!`,
       actionLabel: 'View Progress',
       actionLabelAr: 'عرض المهام',
       module: 'planner',

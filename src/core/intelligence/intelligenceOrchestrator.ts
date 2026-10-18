@@ -58,7 +58,8 @@ export function evaluateWorkspaceIntelligence(
       conversations: snapshot.conversations,
       knowledgeItems: snapshot.knowledgeItems,
     },
-    30
+    30,
+    snapshot.capturedAt || now.toISOString()
   );
 
   // STEP 3 — SCORING / PRIORITY

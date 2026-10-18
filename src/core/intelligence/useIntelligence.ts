@@ -24,6 +24,7 @@ import {
   DailyGoalAlignmentResult,
   WorkspaceSnapshot,
 } from './intelligenceTypes';
+import { captureWorkspaceSnapshot } from './workspaceSnapshotBuilder';
 import { evaluateWorkspaceIntelligence } from './intelligenceOrchestrator';
 import { toNOVOContext } from './contextEngine';
 import { getTodayActivity, getWeekActivity } from './activityEngine';
@@ -69,20 +70,22 @@ export function useIntelligence(): UseIntelligenceResult {
 
   // Single canonical intelligence pipeline evaluation
   const intelligence = useMemo(() => {
-    const snapshot: WorkspaceSnapshot = {
-      capturedAt: new Date().toISOString(),
-      date: getTodayString(),
-      tasks,
-      goals,
-      notes,
-      knowledgeItems,
-      transactions,
-      sessions,
-      conversations,
-      activeFocusState,
-      activeConversationId,
-    };
-    return evaluateWorkspaceIntelligence(snapshot);
+    const now = new Date();
+    const snapshot = captureWorkspaceSnapshot(
+      {
+        tasks,
+        goals,
+        notes,
+        knowledgeItems,
+        transactions,
+        sessions,
+        conversations,
+        activeFocusState,
+        activeConversationId,
+      },
+      now
+    );
+    return evaluateWorkspaceIntelligence(snapshot, now);
   }, [
     tasks,
     goals,
