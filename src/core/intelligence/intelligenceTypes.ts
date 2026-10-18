@@ -5,7 +5,9 @@ import {
   FocusSession,
   Transaction,
   KnowledgeItem,
+  Conversation,
 } from '../../types/data';
+import { ActiveFocusState } from '../../modules/focus/domain/types';
 
 // 1. Productivity Types
 export interface ProductivitySummary {
@@ -134,6 +136,52 @@ export type { NovoScore, ScoreBreakdown } from './scoreEngine';
 export type { DailyBriefing, DailyBriefingTaskStats, DailyBriefingGoalStats, DailyBriefingFocusStats, DailyBriefingMoneyStats } from './briefingEngine';
 export type { WeeklyReview } from './weeklyReviewEngine';
 export type { DailyGoalAlignmentResult } from './goalEngine';
+export type { NextActionResult } from './nextActionEngine';
+export type { AttentionRadarResult } from './attentionEngine';
+export type { GoalPacingAnalysis } from './goalVelocityEngine';
+
+import type { NextActionResult } from './nextActionEngine';
+import type { AttentionRadarResult } from './attentionEngine';
+import type { GoalPacingAnalysis } from './goalVelocityEngine';
+import type { NovoScore } from './scoreEngine';
+import type { DailyBriefing } from './briefingEngine';
+import type { WeeklyReview } from './weeklyReviewEngine';
+import type { DailyGoalAlignmentResult } from './goalEngine';
+
+// 12. Canonical WorkspaceSnapshot (Input Boundary)
+export interface WorkspaceSnapshot {
+  readonly capturedAt: string;
+  readonly date: string;
+  readonly tasks: Task[];
+  readonly goals: Goal[];
+  readonly notes: Note[];
+  readonly knowledgeItems: KnowledgeItem[];
+  readonly transactions: Transaction[];
+  readonly sessions: FocusSession[];
+  readonly conversations?: Conversation[];
+  readonly activeFocusState?: ActiveFocusState | null;
+  readonly activeConversationId?: string | null;
+}
+
+// 13. Canonical IntelligenceSnapshot (Output Boundary)
+export interface IntelligenceSnapshot {
+  readonly evaluatedAt: string;
+  readonly snapshot: WorkspaceSnapshot;
+  readonly productivity: ProductivitySummary;
+  readonly goalHealth: GoalHealthResult;
+  readonly dailyGoalAlignment: DailyGoalAlignmentResult;
+  readonly focus: FocusSummary;
+  readonly finance: FinanceSummary;
+  readonly knowledge: KnowledgeSummary;
+  readonly score: NovoScore;
+  readonly insights: Insight[];
+  readonly briefing: DailyBriefing;
+  readonly weeklyReview: WeeklyReview;
+  readonly nextAction: NextActionResult;
+  readonly attentionRadar: AttentionRadarResult;
+  readonly goalPacing: GoalPacingAnalysis[];
+  readonly activityTimeline: ActivityItem[];
+}
 
 // 8. Daily Overview
 export interface DailyOverview {
@@ -172,6 +220,9 @@ export interface NOVOContext {
   productivityScore: number;
   recentActivity: ActivityEvent[];
   insights: Insight[];
+  conversations?: Conversation[];
+  activeFocusState?: ActiveFocusState | null;
+  activeConversationId?: string | null;
 }
 
 // 11. Unified NOVO Summary

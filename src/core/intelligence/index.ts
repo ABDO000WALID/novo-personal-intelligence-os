@@ -32,3 +32,4 @@ export {
 export * from './useIntelligence';
 export * from './nextActionEngine';
 export * from './attentionEngine';
+export * from './intelligenceOrchestrator';

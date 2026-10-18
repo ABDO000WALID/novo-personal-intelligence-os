@@ -1,7 +1,6 @@
+import { useMemo, useCallback } from 'react';
 import { useGoalStore } from '../state/goalStore';
 import { useTaskStore } from '../state/taskStore';
-import { useMemo, useCallback } from 'react';
-
 import { useFocusStore } from '../state/focusStore';
 import { useNoteStore } from '../state/noteStore';
 import { useMoneyStore } from '../state/moneyStore';
@@ -23,23 +22,11 @@ import {
   DailyBriefing,
   WeeklyReview,
   DailyGoalAlignmentResult,
+  WorkspaceSnapshot,
 } from './intelligenceTypes';
-
-import { analyzeProductivity } from './productivityEngine';
-import { analyzeGoals, analyzeDailyGoalAlignment } from './goalEngine';
-import { analyzeFocus } from './focusEngine';
-import { analyzeFinance } from './financeEngine';
-import { analyzeNotesAndKnowledge } from './notesEngine';
-import { calculateNovoScore } from './scoreEngine';
-import { generateSmartInsights } from './insightEngine';
-import {
-  generateActivityTimeline,
-  getTodayActivity,
-  getWeekActivity,
-} from './activityEngine';
-import { generateDailyBriefing } from './briefingEngine';
-import { generateWeeklyReview } from './weeklyReviewEngine';
-import { buildNOVOContext } from './contextEngine';
+import { evaluateWorkspaceIntelligence } from './intelligenceOrchestrator';
+import { toNOVOContext } from './contextEngine';
+import { getTodayActivity, getWeekActivity } from './activityEngine';
 import { getTodayString } from './dateUtils';
 
 export interface UseIntelligenceResult {
@@ -64,166 +51,95 @@ export interface UseIntelligenceResult {
 
 /**
  * Unified Intelligence Hook for NOVO
- * Reactive, memoized bridge connecting local user storage data directly
- * with the deterministic intelligence analysis engines.
+ *
+ * Reactive bridge connecting UI stores to the canonical evaluateWorkspaceIntelligence pipeline.
+ * Owns React store subscriptions and assembles WorkspaceSnapshot.
+ * Does NOT independently call individual intelligence engines.
  */
 export function useIntelligence(): UseIntelligenceResult {
-  const tasks = useTaskStore(state => state.tasks);
-  const goals = useGoalStore(state => state.goals);
-  const sessions = useFocusStore(state => state.sessions);
-  const notes = useNoteStore(state => state.notes);
-  const transactions = useMoneyStore(state => state.transactions);
-  const knowledgeItems = useKnowledgeStore(state => state.knowledge);
-  const conversations = useChatStore(state => state.conversations);
+  const tasks = useTaskStore((state) => state.tasks);
+  const goals = useGoalStore((state) => state.goals);
+  const sessions = useFocusStore((state) => state.sessions);
+  const notes = useNoteStore((state) => state.notes);
+  const transactions = useMoneyStore((state) => state.transactions);
+  const knowledgeItems = useKnowledgeStore((state) => state.knowledge);
+  const conversations = useChatStore((state) => state.conversations);
+  const activeFocusState = useFocusStore((state) => state.activeState);
+  const activeConversationId = useChatStore((state) => state.activeConversationId);
 
-  // 1. Productivity analysis
-  const productivity = useMemo(() => {
-    return analyzeProductivity(tasks);
-  }, [tasks]);
-
-  // 2. Goals health analysis
-  const goalHealth = useMemo(() => {
-    return analyzeGoals(goals);
-  }, [goals]);
-
-  // 3. Focus analysis
-  const focus = useMemo(() => {
-    return analyzeFocus(sessions);
-  }, [sessions]);
-
-  // 4. Finance analysis
-  const finance = useMemo(() => {
-    return analyzeFinance(transactions);
-  }, [transactions]);
-
-  // 5. Notes & Knowledge analysis
-  const knowledge = useMemo(() => {
-    return analyzeNotesAndKnowledge(notes, knowledgeItems);
-  }, [notes, knowledgeItems]);
-
-  // 6. NOVO Score (0 - 100 with category breakdown)
-  const novoScore = useMemo(() => {
-    return calculateNovoScore({
-      productivity,
-      goals: goalHealth,
-      focus,
-      knowledge,
-    });
-  }, [productivity, goalHealth, focus, knowledge]);
-
-  const productivityScore = novoScore.score;
-
-  // 7. Smart Insights
-  const insights = useMemo(() => {
-    return generateSmartInsights({
-      productivity,
-      goals: goalHealth,
-      focus,
-      finance,
-      knowledge,
-    });
-  }, [productivity, goalHealth, focus, finance, knowledge]);
-
-  const topInsight = useMemo(() => {
-    return insights.length > 0 ? insights[0] : null;
-  }, [insights]);
-
-  // 8. Derived Activity Timeline
-  const activityData = useMemo(() => {
-    return {
+  // Single canonical intelligence pipeline evaluation
+  const intelligence = useMemo(() => {
+    const snapshot: WorkspaceSnapshot = {
+      capturedAt: new Date().toISOString(),
+      date: getTodayString(),
       tasks,
       goals,
       notes,
-      sessions,
-      transactions,
-      conversations,
       knowledgeItems,
+      transactions,
+      sessions,
+      conversations,
+      activeFocusState,
+      activeConversationId,
     };
-  }, [tasks, goals, notes, sessions, transactions, conversations, knowledgeItems]);
-
-  const activityTimeline = useMemo(() => {
-    return generateActivityTimeline(activityData, 30);
-  }, [activityData]);
+    return evaluateWorkspaceIntelligence(snapshot);
+  }, [
+    tasks,
+    goals,
+    sessions,
+    notes,
+    transactions,
+    knowledgeItems,
+    conversations,
+    activeFocusState,
+    activeConversationId,
+  ]);
 
   const todayActivity = useMemo(() => {
-    return getTodayActivity(activityTimeline);
-  }, [activityTimeline]);
+    return getTodayActivity(intelligence.activityTimeline as any);
+  }, [intelligence.activityTimeline]);
 
   const weekActivity = useMemo(() => {
-    return getWeekActivity(activityTimeline);
-  }, [activityTimeline]);
+    return getWeekActivity(intelligence.activityTimeline as any);
+  }, [intelligence.activityTimeline]);
 
-  // 9. Daily Goal Alignment (pure deterministic analysis)
-  const dailyGoalAlignment = useMemo(() => {
-    return analyzeDailyGoalAlignment(tasks, goals);
-  }, [tasks, goals]);
+  const topInsight = useMemo(() => {
+    return intelligence.insights.length > 0 ? intelligence.insights[0] : null;
+  }, [intelligence.insights]);
 
-  // 10. Daily Briefing
-  const briefing = useMemo(() => {
-    return generateDailyBriefing({
-      productivity,
-      goals: goalHealth,
-      focus,
-      finance,
-      knowledge,
-      goalAlignment: dailyGoalAlignment,
-    });
-  }, [productivity, goalHealth, focus, finance, knowledge, dailyGoalAlignment]);
-
-  // 11. Weekly Review
-  const weeklyReview = useMemo(() => {
-    return generateWeeklyReview({
-      tasks,
-      notes,
-      goals,
-      sessions,
-      transactions,
-      knowledgeItems,
-    });
-  }, [tasks, notes, goals, sessions, transactions, knowledgeItems]);
-
-  // 12. Daily Overview object
   const dailyOverview: DailyOverview = useMemo(() => {
     return {
-      date: getTodayString(),
-      taskSummary: productivity,
-      goalSummary: goalHealth,
-      focusSummary: focus,
-      financeSummary: finance,
-      knowledgeSummary: knowledge,
-      productivityScore,
-      topInsights: insights,
-      recentActivity: activityTimeline as ActivityEvent[],
+      date: intelligence.snapshot.date,
+      taskSummary: intelligence.productivity,
+      goalSummary: intelligence.goalHealth,
+      focusSummary: intelligence.focus,
+      financeSummary: intelligence.finance,
+      knowledgeSummary: intelligence.knowledge,
+      productivityScore: intelligence.score.score,
+      topInsights: intelligence.insights,
+      recentActivity: intelligence.activityTimeline as ActivityEvent[],
     };
-  }, [productivity, goalHealth, focus, finance, knowledge, productivityScore, insights, activityTimeline]);
+  }, [intelligence]);
 
-  // 13. Context Builder callable
+  // Stable adapter callback for downstream AI and chat orchestrator
   const getContext = useCallback((): NOVOContext => {
-    return buildNOVOContext({
-      tasks,
-      goals,
-      notes,
-      sessions,
-      transactions,
-      conversations,
-      knowledgeItems,
-    });
-  }, [tasks, goals, notes, sessions, transactions, conversations, knowledgeItems]);
+    return toNOVOContext(intelligence);
+  }, [intelligence]);
 
   return {
-    productivity,
-    goalHealth,
-    focus,
-    finance,
-    knowledge,
-    productivityScore,
-    novoScore,
-    briefing,
-    weeklyReview,
-    dailyGoalAlignment,
-    insights,
+    productivity: intelligence.productivity,
+    goalHealth: intelligence.goalHealth,
+    focus: intelligence.focus,
+    finance: intelligence.finance,
+    knowledge: intelligence.knowledge,
+    productivityScore: intelligence.score.score,
+    novoScore: intelligence.score,
+    briefing: intelligence.briefing,
+    weeklyReview: intelligence.weeklyReview,
+    dailyGoalAlignment: intelligence.dailyGoalAlignment,
+    insights: intelligence.insights,
     topInsight,
-    activityTimeline,
+    activityTimeline: intelligence.activityTimeline,
     todayActivity,
     weekActivity,
     dailyOverview,

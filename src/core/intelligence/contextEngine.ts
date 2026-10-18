@@ -11,31 +11,19 @@ import {
 import {
   NOVOContext,
   NOVOSummary,
-  ProductivitySummary,
-  GoalHealthResult,
-  FocusSummary,
-  FinanceSummary,
-  KnowledgeSummary,
   ActivityEvent,
-  Insight,
+  WorkspaceSnapshot,
+  IntelligenceSnapshot,
 } from './intelligenceTypes';
 import { getTodayString, isDateToday } from './dateUtils';
-import { analyzeProductivity } from './productivityEngine';
-import { analyzeGoals } from './goalEngine';
-import { analyzeFocus } from './focusEngine';
-import { analyzeFinance } from './financeEngine';
-import { analyzeNotesAndKnowledge } from './notesEngine';
-import { calculateNovoScore } from './scoreEngine';
-import { generateSmartInsights } from './insightEngine';
-import { generateActivityTimeline } from './activityEngine';
-import { RepositoryFactory } from '../data/RepositoryFactory';
+import { evaluateWorkspaceIntelligence } from './intelligenceOrchestrator';
 import { useTaskStore } from '../state/taskStore';
 import { useKnowledgeStore } from '../state/knowledgeStore';
 import { useGoalStore } from '../state/goalStore';
 import { useMoneyStore } from '../state/moneyStore';
 import { useNoteStore } from '../state/noteStore';
 import { useChatStore } from '../state/chatStore';
-
+import { ActiveFocusState } from '../../modules/focus/domain/types';
 
 export interface ContextSourceData {
   tasks: Task[];
@@ -45,81 +33,29 @@ export interface ContextSourceData {
   transactions: Transaction[];
   conversations?: Conversation[];
   knowledgeItems?: KnowledgeItem[];
+  activeFocusState?: ActiveFocusState | null;
+  activeConversationId?: string | null;
 }
 
 /**
- * NOVO Context Engine
- *
- * Pure, deterministic business logic layer that aggregates local data from
- * storage abstraction into an unified context snapshot.
- *
- * DOES NOT depend on UI components or external AI services.
+ * Pure adapter: adapts an IntelligenceSnapshot into the legacy NOVOContext interface.
+ * Does not re-calculate any intelligence metrics.
  */
-export function buildNOVOContext(
-  data: ContextSourceData,
-  now: Date = new Date()
-): NOVOContext {
-  const todayStr = getTodayString(now);
+export function toNOVOContext(intelligence: IntelligenceSnapshot): NOVOContext {
+  const { snapshot, evaluatedAt } = intelligence;
+  const now = new Date(evaluatedAt);
+  const todayStr = snapshot.date || getTodayString(now);
 
-  // AI Bounding: We only send the 50 most recently updated knowledge items to prevent token explosion.
-  const boundedKnowledge = [...(data.knowledgeItems || [])]
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-    .slice(0, 50);
-
-  // Analyze individual domains deterministically
-  const productivitySummary: ProductivitySummary = analyzeProductivity(data.tasks, now);
-  const goalHealth: GoalHealthResult = analyzeGoals(data.goals, now);
-  const focusSummary: FocusSummary = analyzeFocus(data.sessions, now);
-  const financeSummary: FinanceSummary = analyzeFinance(data.transactions, now);
-  const knowledgeSummary: KnowledgeSummary = analyzeNotesAndKnowledge(
-    data.notes,
-    boundedKnowledge,
-    now
-  );
-
-  const { score: productivityScore } = calculateNovoScore({
-    productivity: productivitySummary,
-    goals: goalHealth,
-    focus: focusSummary,
-    knowledge: knowledgeSummary,
-  });
-
-  const insights: Insight[] = generateSmartInsights(
-    {
-      productivity: productivitySummary,
-      goals: goalHealth,
-      focus: focusSummary,
-      finance: financeSummary,
-      knowledge: knowledgeSummary,
-    },
-    now
-  );
-
-  const recentActivity: ActivityEvent[] = generateActivityTimeline(
-    {
-      notes: data.notes,
-      goals: data.goals,
-      tasks: data.tasks,
-      sessions: data.sessions,
-      transactions: data.transactions,
-      conversations: data.conversations,
-      knowledgeItems: boundedKnowledge,
-    },
-    15
-  );
-
-  // Filter specific task and goal slices requested by Context Engine architecture
-  const todayTasks = data.tasks.filter((t) =>
+  const todayTasks = snapshot.tasks.filter((t) =>
     isDateToday(t.date || t.createdAt, now)
   );
-  const completedTasks = data.tasks.filter((t) => t.completed);
-  const overdueTasks = data.tasks.filter(
+  const completedTasks = snapshot.tasks.filter((t) => t.completed);
+  const overdueTasks = snapshot.tasks.filter(
     (t) => !t.completed && t.date && t.date < todayStr
   );
-  const activeGoals = data.goals.filter((g) => g.progress < 100);
+  const activeGoals = snapshot.goals.filter((g) => g.progress < 100);
 
-  // Recent notes sorted by newest update/creation
-  const recentNotes = [...data.notes]
+  const recentNotes = [...snapshot.notes]
     .sort((a, b) => {
       const timeA = new Date(a.updatedAt || a.createdAt).getTime() || 0;
       const timeB = new Date(b.updatedAt || b.createdAt).getTime() || 0;
@@ -127,30 +63,71 @@ export function buildNOVOContext(
     })
     .slice(0, 10);
 
+  const boundedKnowledge = [...snapshot.knowledgeItems]
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 50);
+
+  const recentKnowledge = [...boundedKnowledge]
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 5);
+
   return {
-    generatedAt: now.toISOString(),
+    generatedAt: evaluatedAt,
     date: todayStr,
     todayTasks,
     completedTasks,
     overdueTasks,
     activeGoals,
-    notesCount: data.notes.length,
+    notesCount: snapshot.notes.length,
     recentNotes,
-    recentKnowledge: boundedKnowledge.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, 5),
-    focusSessions: data.sessions,
-    focusStats: focusSummary,
-    moneySummary: financeSummary,
-    tasks: data.tasks,
-    goals: data.goals,
-    focusSummary,
-    financeSummary,
-    knowledgeSummary,
-    productivitySummary,
-    goalHealth,
-    productivityScore,
-    recentActivity,
-    insights,
+    recentKnowledge,
+    focusSessions: snapshot.sessions,
+    focusStats: intelligence.focus,
+    moneySummary: intelligence.finance,
+    tasks: snapshot.tasks,
+    goals: snapshot.goals,
+    focusSummary: intelligence.focus,
+    financeSummary: intelligence.finance,
+    knowledgeSummary: intelligence.knowledge,
+    productivitySummary: intelligence.productivity,
+    goalHealth: intelligence.goalHealth,
+    productivityScore: intelligence.score.score,
+    recentActivity: intelligence.activityTimeline as ActivityEvent[],
+    insights: intelligence.insights,
+    conversations: snapshot.conversations,
+    activeFocusState: snapshot.activeFocusState ?? null,
+    activeConversationId: snapshot.activeConversationId ?? null,
   };
+}
+
+/**
+ * NOVO Context Engine
+ *
+ * Delegates execution to the canonical evaluateWorkspaceIntelligence pipeline
+ * and adapts the result into the backward-compatible NOVOContext structure.
+ *
+ * Zero duplicate analytical calculations.
+ */
+export function buildNOVOContext(
+  data: ContextSourceData,
+  now: Date = new Date()
+): NOVOContext {
+  const snapshot: WorkspaceSnapshot = {
+    capturedAt: now.toISOString(),
+    date: getTodayString(now),
+    tasks: data.tasks || [],
+    goals: data.goals || [],
+    notes: data.notes || [],
+    knowledgeItems: data.knowledgeItems || [],
+    transactions: data.transactions || [],
+    sessions: data.sessions || [],
+    conversations: data.conversations || [],
+    activeFocusState: data.activeFocusState ?? null,
+    activeConversationId: data.activeConversationId ?? null,
+  };
+
+  const intelligence = evaluateWorkspaceIntelligence(snapshot, now);
+  return toNOVOContext(intelligence);
 }
 
 /**
@@ -171,22 +148,24 @@ export function getNOVOContext(now: Date = new Date()): NOVOContext {
   }
   const rawNotes = useNoteStore.getState().notes;
   const notes = [...rawNotes].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, 10);
-  if (useFocusStore.getState().status === 'idle') { useFocusStore.getState().initialize(); } const sessions = useFocusStore.getState().sessions;
+  if (useFocusStore.getState().status === 'idle') { useFocusStore.getState().initialize(); } 
+  const sessions = useFocusStore.getState().sessions;
+  const activeFocusState = useFocusStore.getState().activeState;
   if (useMoneyStore.getState().status === 'idle') {
     useMoneyStore.getState().initialize();
   }
   const transactions = useMoneyStore.getState().transactions;
-    if (useChatStore.getState().status === 'idle') {
+  if (useChatStore.getState().status === 'idle') {
     useChatStore.getState().initialize();
   }
   const conversations = useChatStore.getState().conversations;
+  const activeConversationId = useChatStore.getState().activeConversationId;
   
   if (useKnowledgeStore.getState().status === 'idle') {
     useKnowledgeStore.getState().initialize();
   }
   const rawKnowledge = useKnowledgeStore.getState().knowledge;
   const knowledgeItems = rawKnowledge;
-
 
   return buildNOVOContext(
     {
@@ -197,6 +176,8 @@ export function getNOVOContext(now: Date = new Date()): NOVOContext {
       transactions,
       conversations,
       knowledgeItems,
+      activeFocusState,
+      activeConversationId,
     },
     now
   );
