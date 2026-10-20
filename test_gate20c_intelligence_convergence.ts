@@ -20,46 +20,80 @@ function assert(condition: boolean, message: string): void {
 }
 
 console.log("============================================================");
-console.log(" Gate 20-C Intelligence Convergence Test Suite");
+console.log(" Gate 20-C Intelligence Convergence Test Suite (Hardened)");
 console.log("============================================================\n");
 
 // ------------------------------------------------------------
 // Area 1: Deterministic insight ordering with ID tie-breaking (8 assertions)
 // ------------------------------------------------------------
 console.log("--- Area 1: Deterministic Insight Ordering ---");
-const baseTasks: Task[] = [
-  { id: "t1", title: "Task 1", completed: false, priority: "high", date: "2026-10-20" } as Task,
-  { id: "t2", title: "Task 2", completed: false, priority: "high", date: "2026-10-20" } as Task,
-];
-const baseGoals: Goal[] = [];
-const baseSessions: FocusSession[] = [];
+const dummyInputState = {
+  productivity: {
+    totalTasks: 10,
+    completedTasks: 2,
+    pendingTasks: 8,
+    todayTasks: 6,
+    todayCompletedTasks: 1,
+    completionPercentage: 20,
+    highPriorityPendingCount: 2,
+    overdueTasksCount: 2,
+    recentCompletionRate: 20,
+  },
+  goals: {
+    totalGoals: 2,
+    completedGoals: 0,
+    activeGoals: 2,
+    averageProgress: 40,
+    goalsBelow25: 0,
+    goalsAbove75: 0,
+    recentlyUpdatedGoals: 1,
+    healthStatus: "good" as const,
+  },
+  focus: {
+    totalFocusMinutes: 60,
+    todayFocusMinutes: 30,
+    weeklyFocusMinutes: 60,
+    totalSessions: 2,
+    averageSessionMinutes: 30,
+    longestStreakDays: 1,
+  },
+  finance: {
+    totalIncome: 0,
+    totalExpenses: 0,
+    currentBalance: 0,
+    recentSpending: 0,
+    expensesByCategory: [],
+    largestExpenseCategory: null,
+    recentTransactionCount: 0,
+  },
+  knowledge: {
+    totalNotes: 2,
+    recentlyCreatedNotes: 1,
+    recentlyUpdatedNotes: 1,
+    notesCreatedThisWeek: 1,
+    latestActivity: null,
+    totalKnowledgeItems: 2,
+  },
+};
 
-const snapshotA: WorkspaceSnapshot = { tasks: baseTasks, goals: baseGoals, focusSessions: baseSessions };
-const insightsA = generateSmartInsights(snapshotA);
-const insightsB = generateSmartInsights(snapshotA);
+const insightsA = generateSmartInsights(dummyInputState);
+const insightsB = generateSmartInsights(dummyInputState);
 
 assert(Array.isArray(insightsA), "generateSmartInsights returns array");
 assert(insightsA.length === insightsB.length, "Deterministic insight length parity");
 assert(insightsA.map(i => i.type).join(",") === insightsB.map(i => i.type).join(","), "Deterministic insight type sequence");
 assert(insightsA.map(i => i.priority).join(",") === insightsB.map(i => i.priority).join(","), "Deterministic insight priority sequence");
 
-const mockCandidateInsights = [
-  { id: "ins-z", priority: "high" },
-  { id: "ins-a", priority: "high" },
-  { id: "ins-m", priority: "medium" },
-  { id: "ins-b", priority: "high" },
-];
-const priorityWeight: Record<string, number> = { high: 3, medium: 2, low: 1 };
-mockCandidateInsights.sort((a, b) => {
-  const pDiff = (priorityWeight[b.priority] ?? 0) - (priorityWeight[a.priority] ?? 0);
-  if (pDiff !== 0) return pDiff;
-  return a.id.localeCompare(b.id);
-});
+// Test genuine production insight tie-breaking on the raw returned array
+const highTaskLoadInsight = insightsA.find(i => i.id === "ins-high-task-load");
+const overdueTasksInsight = insightsA.find(i => i.id === "ins-overdue-tasks");
+assert(highTaskLoadInsight !== undefined && highTaskLoadInsight.priority === "high", "ins-high-task-load generated with high priority");
+assert(overdueTasksInsight !== undefined && overdueTasksInsight.priority === "high", "ins-overdue-tasks generated with high priority");
 
-assert(mockCandidateInsights[0].id === "ins-a", "Area 1: Tie-break order #1 is lexical lowest ID");
-assert(mockCandidateInsights[1].id === "ins-b", "Area 1: Tie-break order #2 is second lexical ID");
-assert(mockCandidateInsights[2].id === "ins-z", "Area 1: Tie-break order #3 is last high-priority ID");
-assert(mockCandidateInsights[3].id === "ins-m", "Area 1: Lower priority sorted after high");
+const actualHighTaskLoadIdx = insightsA.indexOf(highTaskLoadInsight!);
+const actualOverdueIdx = insightsA.indexOf(overdueTasksInsight!);
+assert(actualHighTaskLoadIdx !== -1 && actualOverdueIdx !== -1, "Both insights present in raw production output");
+assert(actualHighTaskLoadIdx < actualOverdueIdx, "Lexical tie-breaker preserves ascending order in raw production array");
 
 // ------------------------------------------------------------
 // Area 2: Canonical Date Normalization across Refactored Engines (10 assertions)
@@ -96,10 +130,17 @@ const testTasksOverdue: Task[] = [
 const prodMetrics = analyzeProductivity(testTasksOverdue, fixedNow);
 assert(prodMetrics.overdueTasksCount === 2, "productivityEngine identifies exactly 2 overdue tasks");
 
+const baseGoals: Goal[] = [
+  { id: "g1", title: "Goal 1", status: "active", progress: 50, targetDate: "2026-10-25" } as Goal
+];
+const baseSessions: FocusSession[] = [
+  { id: "s1", durationMinutes: 25, completedAt: "2026-10-20T10:00:00.000Z" } as FocusSession
+];
+
 const fullSnapshot: WorkspaceSnapshot = {
   tasks: testTasksOverdue,
-  goals: [],
-  focusSessions: [],
+  goals: baseGoals,
+  focusSessions: baseSessions,
 };
 const context = buildNOVOContext(fullSnapshot, fixedNow);
 assert(context.overdueTasks.length === 2, "NOVOContext identifies exactly 2 overdue tasks");
@@ -113,30 +154,21 @@ assert(context.overdueTasks.length === prodMetrics.overdueTasksCount, "Parity co
 // Area 4: Briefing Overdue Priority over Generic Recommendations (4 assertions)
 // ------------------------------------------------------------
 console.log("--- Area 4: Briefing Overdue Recommendation Hierarchy ---");
-const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split("T")[0];
-const tasksWithRealOverdue: Task[] = [
-  { id: "ov-live", title: "Live overdue", completed: false, priority: "high", date: yesterdayStr } as Task,
-];
-const briefingOverdue = generateDailyBriefing({
-  tasks: tasksWithRealOverdue,
-  goals: [],
-  focusSessions: [],
-});
+const competingState = {
+  ...dummyInputState,
+  productivity: {
+    ...dummyInputState.productivity,
+    overdueTasksCount: 2,
+    highPriorityPendingCount: 3,
+  },
+};
 
-assert(briefingOverdue.recommendation.length > 0, "Briefing recommendation generated for overdue in EN");
-assert(briefingOverdue.recommendationAr.length > 0, "Briefing recommendation generated for overdue in AR");
+const briefingPrecedence = generateDailyBriefing(competingState, fixedNow);
 
-const cleanTasks: Task[] = [
-  { id: "hp1", title: "High priority pending", completed: false, priority: "high", date: normalizeDateString(new Date()) } as Task
-];
-const briefingHighPriority = generateDailyBriefing({
-  tasks: cleanTasks,
-  goals: [],
-  focusSessions: [],
-});
-
-assert(briefingHighPriority.recommendation.length > 0, "Briefing generates recommendation for pending high priority");
-assert(briefingHighPriority.recommendationAr.length > 0, "Briefing generates Arabic recommendation for pending high priority");
+assert(briefingPrecedence.recommendation.includes("overdue tasks that need review"), "Briefing selects overdue recommendation text");
+assert(!briefingPrecedence.recommendation.includes("highest priority task is still incomplete"), "Briefing suppresses competing high-priority recommendation");
+assert(briefingPrecedence.recommendationAr.includes("مهام متأخرة تحتاج للمراجعة"), "Arabic briefing selects overdue recommendation text");
+assert(!briefingPrecedence.recommendationAr.includes("مهمتك ذات الأولوية القصوى"), "Arabic briefing suppresses competing high-priority recommendation");
 
 // ------------------------------------------------------------
 // Area 5: Canonical Exposure & Reference Parity across Engines (9 assertions)
@@ -158,7 +190,7 @@ const attentionRadarRes = evaluateAttentionRadar({
 assert(attentionRadarRes !== undefined && attentionRadarRes !== null, "evaluateAttentionRadar completes successfully");
 
 const goalVelocityRes = analyzeAllGoalsPacing(
-  [{ id: "g1", title: "Goal 1", status: "active", targetDate: "2026-10-25" } as Goal],
+  baseGoals,
   testTasksOverdue,
   [],
   fixedNow
