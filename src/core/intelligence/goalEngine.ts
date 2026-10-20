@@ -1,6 +1,6 @@
 import { Goal, Task } from '../../types/data';
 import { GoalHealthResult, GoalHealthStatus } from './intelligenceTypes';
-import { isWithinDays } from './dateUtils';
+import { isWithinDays, normalizeDateString } from './dateUtils';
 
 export interface GoalTaskActivity {
   total: number;
@@ -92,20 +92,6 @@ export interface DailyGoalAlignmentResult {
   goalAlignedPriorityTasks: Task[];
 }
 
-function normalizeTargetDate(targetDate?: string | Date | null): string {
-  if (!targetDate) return '';
-  if (typeof targetDate === 'string') {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
-      return targetDate;
-    }
-    return targetDate.split('T')[0];
-  }
-  const year = targetDate.getFullYear();
-  const month = String(targetDate.getMonth() + 1).padStart(2, '0');
-  const day = String(targetDate.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
 /**
  * Deterministic Daily Goal Alignment Engine
  * Analyzes today's tasks and active goals to evaluate goal-linked execution.
@@ -133,8 +119,8 @@ export function analyzeDailyGoalAlignment(
     activeGoalsMap.set(g.id, g);
   }
 
-  const dateStr = normalizeTargetDate(targetDate);
-  const todayTasks = safeTasks.filter((t) => t && normalizeTargetDate(t.date) === dateStr);
+  const dateStr = normalizeDateString(targetDate);
+  const todayTasks = safeTasks.filter((t) => t && normalizeDateString(t.date) === dateStr);
   const todayTaskCount = todayTasks.length;
 
   // A task counts as goal-aligned only if it references a valid active goal

@@ -2,6 +2,27 @@
  * Deterministic Date Utilities for NOVO Intelligence Engines
  */
 
+export function normalizeDateString(
+  d?: string | Date | null
+): string {
+  if (!d) return '';
+
+  if (typeof d === 'string') {
+    const trimmed = d.trim();
+    if (!trimmed) return '';
+    return trimmed.includes('T') ? trimmed.split('T')[0] : trimmed;
+  }
+
+  if (d instanceof Date && !isNaN(d.getTime())) {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  return '';
+}
+
 export function getTodayString(now: Date = new Date()): string {
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -12,7 +33,7 @@ export function getTodayString(now: Date = new Date()): string {
 export function isDateToday(dateStr: string, now: Date = new Date()): boolean {
   if (!dateStr) return false;
   // Handle YYYY-MM-DD or full ISO string
-  const targetDateStr = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
+  const targetDateStr = normalizeDateString(dateStr);
   return targetDateStr === getTodayString(now);
 }
 
@@ -31,7 +52,7 @@ export function isWithinDays(dateStr: string, days: number, now: Date = new Date
 
 export function isDateBeforeToday(dateStr: string, now: Date = new Date()): boolean {
   if (!dateStr) return false;
-  const targetDateStr = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
+  const targetDateStr = normalizeDateString(dateStr);
   return targetDateStr < getTodayString(now);
 }
 

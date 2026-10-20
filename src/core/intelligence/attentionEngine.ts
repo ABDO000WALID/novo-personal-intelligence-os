@@ -1,4 +1,5 @@
 import { Task, Goal, FocusSession } from '../../types/data';
+import { normalizeDateString } from './dateUtils';
 
 export type AttentionTier = 1 | 2 | 3 | 4 | 5;
 
@@ -122,14 +123,10 @@ export function evaluateAttentionRadar(input: AttentionInputState): AttentionRad
   // Condition: incomplete task, task.date < todayStr
   // Sorting: high > medium > low, earlier createdAt, lexical task.id
   // ==========================================
-  const normalizeTaskDate = (d?: string): string => {
-    if (!d) return '';
-    return d.includes('T') ? d.split('T')[0] : d;
-  };
 
   const overdueTasks = tasks.filter((t) => {
     if (!t || t.completed || !t.date) return false;
-    return normalizeTaskDate(t.date) < todayStr;
+    return normalizeDateString(t.date) < todayStr;
   });
 
   if (overdueTasks.length > 0) {
@@ -274,7 +271,7 @@ export function evaluateAttentionRadar(input: AttentionInputState): AttentionRad
   // ==========================================
   const todayPendingTasks = tasks.filter((t) => {
     if (!t || t.completed || !t.date) return false;
-    return normalizeTaskDate(t.date) === todayStr;
+    return normalizeDateString(t.date) === todayStr;
   });
 
   const todayHighPriorityTasks = todayPendingTasks.filter((t) => t.priority === 'high');

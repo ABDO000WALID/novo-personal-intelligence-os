@@ -289,7 +289,11 @@ export function generateSmartInsights(
     low: 1,
   };
 
-  candidateInsights.sort((a, b) => priorityWeight[b.priority] - priorityWeight[a.priority]);
+  candidateInsights.sort((a, b) => {
+    const pDiff = priorityWeight[b.priority] - priorityWeight[a.priority];
+    if (pDiff !== 0) return pDiff;
+    return a.id.localeCompare(b.id);
+  });
 
   // Return top 2–3 important insights
   return candidateInsights.slice(0, 3);

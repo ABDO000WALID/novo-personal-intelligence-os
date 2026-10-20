@@ -16,7 +16,7 @@ import {
   IntelligenceSnapshot,
 } from './intelligenceTypes';
 import { captureWorkspaceSnapshot } from './workspaceSnapshotBuilder';
-import { getTodayString, isDateToday } from './dateUtils';
+import { getTodayString, isDateToday, isDateBeforeToday } from './dateUtils';
 import { evaluateWorkspaceIntelligence } from './intelligenceOrchestrator';
 import { useTaskStore } from '../state/taskStore';
 import { useKnowledgeStore } from '../state/knowledgeStore';
@@ -52,7 +52,7 @@ export function toNOVOContext(intelligence: IntelligenceSnapshot): NOVOContext {
   );
   const completedTasks = snapshot.tasks.filter((t) => t.completed);
   const overdueTasks = snapshot.tasks.filter(
-    (t) => !t.completed && t.date && t.date < todayStr
+    (t) => !t.completed && t.date && isDateBeforeToday(t.date, now)
   );
   const activeGoals = snapshot.goals.filter((g) => g.progress < 100);
 
@@ -98,6 +98,10 @@ export function toNOVOContext(intelligence: IntelligenceSnapshot): NOVOContext {
     conversations: snapshot.conversations,
     activeFocusState: snapshot.activeFocusState ?? null,
     activeConversationId: snapshot.activeConversationId ?? null,
+    briefing: intelligence.briefing,
+    nextAction: intelligence.nextAction,
+    attentionRadar: intelligence.attentionRadar,
+    goalPacing: intelligence.goalPacing,
   };
 }
 

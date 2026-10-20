@@ -195,7 +195,10 @@ export function generateDailyBriefing(
   let recommendation = '';
   let recommendationAr = '';
 
-  if (productivity.highPriorityPendingCount > 0) {
+  if (productivity.overdueTasksCount > 0) {
+    recommendation = `You have ${productivity.overdueTasksCount} overdue task${productivity.overdueTasksCount > 1 ? 's' : ''} that need review. Consider addressing them first.`;
+    recommendationAr = `لديك ${productivity.overdueTasksCount} مهام متأخرة تحتاج للمراجعة. ابدأ بمعالجتها أولاً لإزالة العوائق.`;
+  } else if (productivity.highPriorityPendingCount > 0) {
     recommendation = 'Your highest priority task is still incomplete. Consider starting there.';
     recommendationAr = 'مهمتك ذات الأولوية القصوى لم تكتمل بعد. فكّر في البدء بها لضمان أعلى أثر.';
   } else if (focus.todayFocusMinutes === 0 && productivity.pendingTasks > 0) {

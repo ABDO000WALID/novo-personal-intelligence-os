@@ -223,6 +223,10 @@ export interface NOVOContext {
   conversations?: Conversation[];
   activeFocusState?: ActiveFocusState | null;
   activeConversationId?: string | null;
+  briefing?: DailyBriefing;
+  nextAction?: NextActionResult;
+  attentionRadar?: AttentionRadarResult;
+  goalPacing?: GoalPacingAnalysis[];
 }
 
 // 11. Unified NOVO Summary

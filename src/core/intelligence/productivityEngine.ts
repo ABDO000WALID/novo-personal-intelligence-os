@@ -1,6 +1,6 @@
 import { Task } from '../../types/data';
 import { ProductivitySummary } from './intelligenceTypes';
-import { getTodayString, isDateBeforeToday } from './dateUtils';
+import { getTodayString, isDateBeforeToday, normalizeDateString } from './dateUtils';
 
 /**
  * Deterministic Productivity Analysis Engine
@@ -14,12 +14,7 @@ export function analyzeProductivity(tasks: Task[], now: Date = new Date()): Prod
   const completedTasks = safeTasks.filter((t) => t && t.completed).length;
   const pendingTasks = totalTasks - completedTasks;
 
-  const normalizeDate = (d?: string): string => {
-    if (!d) return '';
-    return d.includes('T') ? d.split('T')[0] : d;
-  };
-
-  const todayTasksList = safeTasks.filter((t) => t && normalizeDate(t.date) === todayStr);
+  const todayTasksList = safeTasks.filter((t) => t && normalizeDateString(t.date) === todayStr);
   const todayTasks = todayTasksList.length;
   const todayCompletedTasks = todayTasksList.filter((t) => t.completed).length;
 

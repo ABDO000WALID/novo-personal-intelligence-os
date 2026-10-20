@@ -23,6 +23,9 @@ import {
   WeeklyReview,
   DailyGoalAlignmentResult,
   WorkspaceSnapshot,
+  NextActionResult,
+  AttentionRadarResult,
+  GoalPacingAnalysis,
 } from './intelligenceTypes';
 import { captureWorkspaceSnapshot } from './workspaceSnapshotBuilder';
 import { evaluateWorkspaceIntelligence } from './intelligenceOrchestrator';
@@ -48,6 +51,9 @@ export interface UseIntelligenceResult {
   weekActivity: ActivityItem[];
   dailyOverview: DailyOverview;
   getContext: () => NOVOContext;
+  nextAction: NextActionResult;
+  attentionRadar: AttentionRadarResult;
+  goalPacing: GoalPacingAnalysis[];
 }
 
 /**
@@ -147,5 +153,8 @@ export function useIntelligence(): UseIntelligenceResult {
     weekActivity,
     dailyOverview,
     getContext,
+    nextAction: intelligence.nextAction,
+    attentionRadar: intelligence.attentionRadar,
+    goalPacing: intelligence.goalPacing,
   };
 }

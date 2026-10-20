@@ -1,4 +1,5 @@
 import { Goal, Task, TaskPriority } from '../../types/data';
+import { normalizeDateString } from './dateUtils';
 
 export type NextActionTier = 1 | 2 | 3 | 4;
 export type NextActionTierName = 'overdue' | 'today' | 'unattended_goal' | 'all_clear';
@@ -39,26 +40,6 @@ const PRIORITY_RANK: Record<string, number> = {
 function getPriorityRank(priority?: TaskPriority | string): number {
   if (!priority) return PRIORITY_RANK['medium'];
   return PRIORITY_RANK[priority] ?? PRIORITY_RANK['medium'];
-}
-
-function normalizeDateString(targetDate?: string | Date): string {
-  if (!targetDate) {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
-  if (typeof targetDate === 'string') {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
-      return targetDate;
-    }
-    return targetDate.split('T')[0];
-  }
-  const year = targetDate.getFullYear();
-  const month = String(targetDate.getMonth() + 1).padStart(2, '0');
-  const day = String(targetDate.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }
 
 /**
@@ -166,7 +147,7 @@ export function determineNextAction(
 ): NextActionResult {
   const safeTasks = Array.isArray(tasks) ? tasks : [];
   const safeGoals = Array.isArray(goals) ? goals : [];
-  const todayStr = normalizeDateString(today);
+  const todayStr = normalizeDateString(today) || normalizeDateString(new Date());
 
   // Active goals: valid id and progress < 100
   const activeGoals = safeGoals.filter(

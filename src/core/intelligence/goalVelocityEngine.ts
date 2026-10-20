@@ -1,4 +1,5 @@
 import { Goal, Task, FocusSession } from '../../types/data';
+import { normalizeDateString } from './dateUtils';
 
 export type GoalActivityState =
   | 'No Execution Data'
@@ -23,15 +24,6 @@ export interface GoalPacingAnalysis {
   activityState: GoalActivityState;
 }
 
-/**
- * Normalizes ISO date string or Date object to YYYY-MM-DD
- */
-function toDateString(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
 
 /**
  * Pure parsing of calendar date from an ISO or date string, or null if invalid.
@@ -68,7 +60,7 @@ export function calculateGoalPacing(
 ): GoalPacingAnalysis {
   const currentProgress = typeof goal.progress === 'number' ? Math.min(100, Math.max(0, goal.progress)) : 0;
   const nowCalendar = new Date(now.getTime());
-  const todayStr = toDateString(nowCalendar);
+  const todayStr = normalizeDateString(nowCalendar);
   const sevenDaysAgoTime = nowCalendar.getTime() - 7 * 24 * 60 * 60 * 1000;
 
   // 1. Goal Lifetime Age
@@ -97,9 +89,10 @@ export function calculateGoalPacing(
 
   for (const t of linkedTasks) {
     if (!t.completed && t.date) {
-      if (t.date < todayStr) {
+      const taskDate = normalizeDateString(t.date);
+      if (taskDate < todayStr) {
         overdueLinkedTaskCount++;
-      } else if (t.date === todayStr) {
+      } else if (taskDate === todayStr) {
         todayLinkedTaskCount++;
       } else {
         upcomingLinkedTaskCount++;
