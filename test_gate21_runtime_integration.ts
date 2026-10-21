@@ -1,10 +1,11 @@
 import { parseCommand } from './src/core/commands/commandParser';
 import { aiOrchestrator } from './src/core/ai/aiOrchestrator';
 import { buildAIGroundedContext } from './src/core/intelligence/contextBuilder';
-import { toNOVOContext } from './src/core/intelligence/contextBridge';
-import { evaluateWorkspaceIntelligence } from './src/core/intelligence/intelligenceCoordinator';
+import { toNOVOContext } from './src/core/intelligence/contextEngine';
+import { evaluateWorkspaceIntelligence } from './src/core/intelligence/intelligenceOrchestrator';
+import { captureWorkspaceSnapshot } from './src/core/intelligence/workspaceSnapshotBuilder';
 import { NOVOContext } from './src/core/intelligence/intelligenceTypes';
-import { Task, Goal, FocusSession, MoneyState, Note, KnowledgeItem } from './src/types/data';
+import { Task, Goal, FocusSession, Transaction, Note, KnowledgeItem } from './src/types/data';
 
 function makeMockContext(): NOVOContext {
   const dateStr = '2026-10-21';
@@ -37,13 +38,22 @@ function makeMockContext(): NOVOContext {
     goals: [dummyGoal],
     activeGoals: [dummyGoal],
     focusStats: {
+      totalSessions: 6,
+      totalFocusedMinutes: 240,
+      todaySessions: 2,
       todayFocusMinutes: 45,
       weeklyFocusMinutes: 240,
-      totalSessions: 6,
+      averageSessionDuration: 40,
+      recentActivityCount: 6,
     },
     moneySummary: {
+      totalIncome: 15000,
+      totalExpenses: 2500,
       currentBalance: 12500,
       recentSpending: 420,
+      expensesByCategory: [],
+      largestExpenseCategory: null,
+      recentTransactionCount: 2,
     },
     recentNotes: [
       {
@@ -67,7 +77,6 @@ function makeMockContext(): NOVOContext {
       },
     ],
     notesCount: 1,
-    knowledgeCount: 1,
     insights: [
       {
         id: 'ins-1',
@@ -77,12 +86,16 @@ function makeMockContext(): NOVOContext {
       },
     ],
     briefing: {
-      statusSummary: 'Your workspace is in top shape today with 88% velocity score.',
-      productivitySummary: '1 pending high priority task.',
-      focusRecommendation: 'Maintain steady 25m focus blocks.',
-      financeAlert: 'Spend pacing within 7-day budget.',
-      knowledgeHighlight: 'Review Architecture Review Notes.',
-      motivationalClosing: 'Keep up the executive cadence.',
+      greeting: 'Good day',
+      greetingAr: 'نهار سعيد',
+      summary: 'Your workspace is in top shape today with 88% velocity score.',
+      summaryAr: 'مساحة عملك في أفضل حال.',
+      taskStats: { remainingImportant: 1, completedToday: 0, totalToday: 1, pendingCount: 1 },
+      goalStats: { activeCount: 1, averageProgress: 45 },
+      focusStats: { todayMinutes: 45, weeklyMinutes: 240, completedSessions: 2 },
+      moneyStats: { balance: 12500, recentExpenses: 420 },
+      recommendation: 'Maintain steady 25m focus blocks.',
+      recommendationAr: 'حافظ على جلسات تركيز منتظمة.',
     },
     nextAction: {
       type: 'existing_task',
@@ -209,7 +222,7 @@ async function runGate21Tests() {
   console.log('Test Group 3: AIOrchestrator Canonical Consumer Parity');
   {
     const orchBriefing = await aiOrchestrator.orchestrate({
-      prompt: 'daily briefing',
+      message: 'daily briefing',
       messages: [],
       context,
     });
@@ -220,7 +233,7 @@ async function runGate21Tests() {
     );
 
     const orchNextAction = await aiOrchestrator.orchestrate({
-      prompt: 'next action',
+      message: 'next action',
       messages: [],
       context,
     });
@@ -231,7 +244,7 @@ async function runGate21Tests() {
     );
 
     const orchRadar = await aiOrchestrator.orchestrate({
-      prompt: 'attention radar',
+      message: 'attention radar',
       messages: [],
       context,
     });
@@ -242,7 +255,7 @@ async function runGate21Tests() {
     );
 
     const orchPacing = await aiOrchestrator.orchestrate({
-      prompt: 'portfolio pacing',
+      message: 'portfolio pacing',
       messages: [],
       context,
     });
@@ -310,29 +323,17 @@ async function runGate21Tests() {
       },
     ];
     const focusSessions: FocusSession[] = [];
-    const moneyState: MoneyState = { balance: 5000, transactions: [] };
+    const transactions: Transaction[] = [];
     const notes: Note[] = [];
-    const knowledge: KnowledgeItem[] = [];
+    const knowledgeItems: KnowledgeItem[] = [];
 
-    const snapshot = evaluateWorkspaceIntelligence(
-      tasks,
-      goals,
-      focusSessions,
-      moneyState,
-      notes,
-      knowledge,
-      new Date('2026-10-21')
+    const now = new Date('2026-10-21');
+    const snapshot = captureWorkspaceSnapshot(
+      { tasks, goals, notes, knowledgeItems, transactions, sessions: focusSessions },
+      now
     );
-
-    const canonicalContext = toNOVOContext(
-      snapshot,
-      tasks,
-      goals,
-      focusSessions,
-      moneyState,
-      notes,
-      knowledge
-    );
+    const intelligence = evaluateWorkspaceIntelligence(snapshot, now);
+    const canonicalContext = toNOVOContext(intelligence);
 
     assert(!!canonicalContext.briefing, 'toNOVOContext populated briefing');
     assert(!!canonicalContext.nextAction, 'toNOVOContext populated nextAction');
@@ -364,7 +365,7 @@ async function runGate21Tests() {
     );
 
     const aiResult = await aiOrchestrator.orchestrate({
-      prompt: 'daily briefing',
+      message: 'daily briefing',
       messages: [],
       context: canonicalContext,
     });
