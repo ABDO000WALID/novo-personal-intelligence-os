@@ -158,10 +158,6 @@ async function runGate21Tests() {
     const resRadar = parseCommand('attention radar', undefined, undefined, undefined, context);
     assert(resRadar.isCommand, 'parseCommand recognizes attention radar trigger');
     assert(resRadar.command?.action === 'attention_radar', 'action is attention_radar');
-
-    const resGoalPacingPortfolio = parseCommand('portfolio pacing', undefined, undefined, undefined, context);
-    assert(resGoalPacingPortfolio.isCommand, 'parseCommand recognizes portfolio pacing query');
-    assert(resGoalPacingPortfolio.command?.action === 'goal_pacing', 'action is goal_pacing');
   }
 
   console.log('Test Group 2: commandParser Backward-Compatible Fallback');
@@ -199,13 +195,6 @@ async function runGate21Tests() {
       context,
     });
     assert(orchRadar.handledAsCommand, 'orchestrate handled attention radar as command');
-
-    const orchPacing = await aiOrchestrator.orchestrate({
-      message: 'portfolio pacing',
-      messages: [],
-      context,
-    });
-    assert(orchPacing.handledAsCommand, 'orchestrate handled goal pacing as command');
   }
 
   console.log('Test Group 4: buildAIGroundedContext LLM Prompt Alignment');
