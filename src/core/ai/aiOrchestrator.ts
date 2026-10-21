@@ -1,4 +1,6 @@
 import { generateDailyBriefing } from '../intelligence/briefingEngine';
+import { determineNextAction } from '../intelligence/nextActionEngine';
+import { evaluateAttentionRadar } from '../intelligence/attentionEngine';
 import {
   parseCommand,
   getLocalDateString,

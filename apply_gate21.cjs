@@ -761,4 +761,73 @@ console.log('✓ Created test_gate21_runtime_integration.ts');
 console.log('====================================================');
 console.log('Gate 21 changes successfully applied!');
 console.log('Run tests with: npx tsx test_gate21_runtime_integration.ts');
-console.log('====================================================');
+console.log('====================================================');const fs = require('fs');
+const path = require('path');
+
+console.log('Applying Final Gate 21 Runtime Convergence...');
+
+// 1. Update src/core/commands/commandParser.ts
+const cmdParserPath = path.join(process.cwd(), 'src/core/commands/commandParser.ts');
+if (fs.existsSync(cmdParserPath)) {
+  let cp = fs.readFileSync(cmdParserPath, 'utf8');
+
+  // Fix daily briefing in commandParser to consume context.briefing directly
+  cp = cp.replace(
+    /if\s*\(isDailyBriefingTrigger\(input\)\)\s*\{[\s\S]*?const\s+briefing\s*=\s*generateDailyBriefing\([\s\S]*?\);\s*const\s+activeGoals\s*=/gm,
+    `if (isDailyBriefingTrigger(input)) {
+    const safeGoals = Array.isArray(availableGoals) ? availableGoals : (context?.goals || context?.activeGoals || []);
+    const safeTasks = Array.isArray(availableTasks) ? availableTasks : (context?.tasks || context?.todayTasks || []);
+    const briefing = context?.briefing ?? generateDailyBriefing({ productivity: analyzeProductivity(safeTasks, targetDate || new Date()), goals: analyzeGoals(safeGoals, targetDate || new Date()), focus: analyzeFocus([], targetDate || new Date()), finance: analyzeFinance([], targetDate || new Date()), knowledge: analyzeNotesAndKnowledge([], [], targetDate || new Date()), goalAlignment: analyzeDailyGoalAlignment(safeTasks, safeGoals, targetDate || new Date()) }, targetDate || new Date());
+    const activeGoals =`
+  );
+
+  // Fix next action in commandParser to consume context.nextAction directly
+  cp = cp.replace(
+    /const\s+nextActionResult\s*=\s*determineNextAction\(availableTasks\s*\Vert{}\Vert{}\s*\[\],\s*availableGoals\s*\Vert{}\Vert{}\s*\[\],\s*today\);/g,
+    "const nextActionResult = context?.nextAction ?? determineNextAction(availableTasks || [], availableGoals || [], today);"
+  );
+
+  // Fix attention radar in commandParser to consume context.attentionRadar directly
+  cp = cp.replace(
+    /const\s+radarResult\s*=\s*evaluateAttentionRadar\(\{[\s\S]*?\}\);/g,
+    "const radarResult = context?.attentionRadar ?? evaluateAttentionRadar({ tasks: availableTasks || [], goals: availableGoals || [], todayStr: today });"
+  );
+
+  // Fix single goal pacing in commandParser to consume context.goalPacing directly
+  cp = cp.replace(
+    /const\s+analysis\s*=\s*calculateGoalPacing\(resolution\.goal,\s*availableTasks\s*\Vert{}\Vert{}\s*\[\],\s*\[\],\s*now\);/g,
+    "const analysis = (context?.goalPacing && context.goalPacing.find(p => p.goalId === resolution.goal!.id)) ?? calculateGoalPacing(resolution.goal, availableTasks || [], context?.focusSessions || [], now);"
+  );
+
+  // Fix portfolio goal pacing in commandParser to consume context.goalPacing directly
+  cp = cp.replace(
+    /const\s+analyses\s*=\s*analyzeAllGoalsPacing\(activeGoals,\s*availableTasks\s*\Vert{}\Vert{}\s*\[\],\s*\[\],\s*now\);/g,
+    "const analyses = (context?.goalPacing && context.goalPacing.length > 0) ? context.goalPacing.filter(p => activeGoals.some(g => g.id === p.goalId)) : analyzeAllGoalsPacing(activeGoals, availableTasks || [], context?.focusSessions || [], now);"
+  );
+
+  fs.writeFileSync(cmdParserPath, cp, 'utf8');
+  console.log('✓ Updated commandParser.ts');
+}
+
+// 2. Update src/core/ai/aiOrchestrator.ts
+const aiOrchPath = path.join(process.cwd(), 'src/core/ai/aiOrchestrator.ts');
+if (fs.existsSync(aiOrchPath)) {
+  let ao = fs.readFileSync(aiOrchPath, 'utf8');
+
+  // Next action in orchestrator
+  ao = ao.replace(
+    /const\s+actionResult\s*=\s*determineNextAction\(liveTasks,\s*liveGoals,\s*today\);/g,
+    "const actionResult = request.context?.nextAction ?? determineNextAction(liveTasks, liveGoals, today);"
+  );
+
+  // Attention radar in orchestrator
+  ao = ao.replace(
+    /const\s+radarResult\s*=\s*evaluateAttentionRadar\(\{[\s\S]*?\}\);/g,
+    "const radarResult = request.context?.attentionRadar ?? evaluateAttentionRadar({ tasks: liveTasks, goals: liveGoals, focusSessions: liveSessions, todayFocusMinutes: request.context?.focusStats?.todayFocusMinutes, todayStr: today });"
+  );
+
+  fs.writeFileSync(aiOrchPath, ao, 'utf8');
+  console.log('✓ Updated aiOrchestrator.ts');
+}
+
+console.log('Gate 21 Convergence applied successfully!');
