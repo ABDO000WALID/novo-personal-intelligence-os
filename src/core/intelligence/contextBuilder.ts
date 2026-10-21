@@ -16,17 +16,14 @@ export function buildAIGroundedContext(
   );
 
   // 1. Planner & Tasks
-  // Always include aggregates
   const pendingTasks = context.tasks.filter(t => !t.completed);
   const highPriority = pendingTasks.filter(t => t.priority === 'high');
   
-  // Dynamic extraction based on importance
-  // Prioritize: Overdue -> High Priority -> Today -> Other pending
   const criticalTasks = Array.from(new Set([
     ...context.overdueTasks,
     ...highPriority,
     ...context.todayTasks.filter(t => !t.completed)
-  ])).slice(0, 30); // scale up to 30 important items rather than 3
+  ])).slice(0, 30);
 
   const taskLines =
     criticalTasks.length > 0
@@ -49,7 +46,7 @@ export function buildAIGroundedContext(
   );
 
   // 2. Active Goals
-  const active = context.activeGoals.slice(0, 15); // Up to 15 active goals
+  const active = context.activeGoals.slice(0, 15);
   const goalLines =
     active.length > 0
       ? active.map((g) => `  * ${g.title}: ${g.progress}% progress`).join('\n')
@@ -72,6 +69,7 @@ export function buildAIGroundedContext(
   // 5. Knowledge & Notes
   const notesList = context.recentNotes.slice(0, 10);
   const knowledgeList = context.recentKnowledge ? context.recentKnowledge.slice(0, 5) : [];
+
   const noteLines =
     notesList.length > 0
       ? notesList.map((n) => `  * ${n.title}`).join('\n')
@@ -95,12 +93,53 @@ export function buildAIGroundedContext(
     sections.push(`## Active Insights\n${insightLines}`);
   }
 
+  // 7. Recommended Next Action (Gate 20-C / 21 Parity)
+  if (context.nextAction) {
+    const na = context.nextAction;
+    let naDesc = 'None';
+    if (na.type === 'existing_task') {
+      naDesc = `Existing task "${na.selectedTask.title}" (${na.selectedTask.priority} priority${na.tier === 1 ? ', OVERDUE' : ''})`;
+    } else if (na.type === 'new_task_required') {
+      naDesc = `New task required for goal "${na.selectedGoal.title}" (${na.selectedGoal.progress}% progress)`;
+    } else if (na.type === 'all_clear') {
+      naDesc = 'All clear (no pending critical actions)';
+    }
+    sections.push(`## Recommended Next Action\n- Type: ${na.type}\n- Action: ${naDesc}`);
+  }
+
+  // 8. Attention Radar (Gate 20-C / 21 Parity)
+  if (context.attentionRadar) {
+    const ar = context.attentionRadar;
+    let arDesc = 'Workspace in equilibrium';
+    if (ar.type === 'overdue_task') {
+      arDesc = `Overdue task: "${ar.selectedTaskTitle}" (${ar.daysOverdue} days overdue, ${ar.taskPriority} priority)`;
+    } else if (ar.type === 'stalled_goal') {
+      arDesc = `Stalled goal: "${ar.selectedGoalTitle}" (${ar.daysInactive} days inactive, ${ar.currentProgress}% progress)`;
+    } else if (ar.type === 'urgent_today_task') {
+      arDesc = `High priority task today: "${ar.selectedTaskTitle}"`;
+    } else if (ar.type === 'focus_deficit') {
+      arDesc = `Focus deficit: ${ar.pendingTasksTodayCount} pending tasks with only ${ar.todayFocusMinutes}m focus logged`;
+    }
+    sections.push(`## Attention Radar\n- Alert Type: ${ar.type}\n- Detail: ${arDesc}`);
+  }
+
+  // 9. Goal Pacing & Velocity (Gate 20-C / 21 Parity)
+  if (context.goalPacing && context.goalPacing.length > 0) {
+    const pacingLines = context.goalPacing
+      .slice(0, 10)
+      .map(
+        (p) =>
+          `  * ${p.goalTitle}: ${p.activityState} (Lifetime Pace: ${p.lifetimePace}%/d, Exec Ratio: ${p.executionCompletionRatio}%, Focus: ${p.focusMinutes}m)`
+      )
+      .join('\n');
+    sections.push(`## Goal Pacing & Velocity\n${pacingLines}`);
+  }
+
   return sections.join('\n\n');
 }
 
 export function buildAISystemContext(context: NOVOContext, userIntent?: string): string {
   const groundedContext = buildAIGroundedContext(context, { userIntent });
-
   return `You are NOVO, an executive personal intelligence operating system.
 You provide thoughtful, concise, and structured guidance in Arabic or English based on the user's current state.
 

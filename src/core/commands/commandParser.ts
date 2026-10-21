@@ -10,6 +10,7 @@ import {
   NextActionCommandPayload,
   NOVOCommand,
 } from './commandTypes';
+import { NOVOContext } from '../intelligence/intelligenceTypes';
 import { analyzeDailyGoalAlignment, analyzeGoals } from '../intelligence/goalEngine';
 import { generateDailyBriefing, DailyBriefing } from '../intelligence/briefingEngine';
 import { analyzeProductivity } from '../intelligence/productivityEngine';
@@ -1537,7 +1538,8 @@ export function parseCommand(
   input: string,
   availableGoals?: Goal[],
   availableTasks?: Task[],
-  targetDate?: string | Date
+  targetDate?: string | Date,
+  context?: NOVOContext
 ): CommandParseResult {
   if (!input || typeof input !== 'string') {
     return { isCommand: false };

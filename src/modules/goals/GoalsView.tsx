@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button';
 import { useGoalStore } from '../../core/state/goalStore';
 import { useTaskStore } from '../../core/state/taskStore';
 import { useFocusStore } from '../../core/state/focusStore';
+import { useIntelligence } from '../../core/intelligence';
 import { getGoalTaskActivity } from '../../core/intelligence/goalEngine';
 import { calculateGoalPacing } from '../../core/intelligence/goalVelocityEngine';
 import {
@@ -25,6 +26,7 @@ import {
 } from 'lucide-react';
 
 export function GoalsView() {
+  const { goalPacing } = useIntelligence();
   const { language } = useApp();
   const isAr = language === 'ar';
   const status = useGoalStore(state => state.status);
@@ -257,6 +259,11 @@ export function GoalsView() {
           goals.map((goal) => {
             const isEditing = editingId === goal.id;
             const isCompleted = goal.progress >= 100;
+            const pacing = goalPacing.find((p) => p.goalId === goal.id);
+            const activity = {
+              total: pacing?.linkedTaskCount ?? 0,
+              completed: pacing?.completedLinkedTaskCount ?? 0,
+            };
             const activity = getGoalTaskActivity(goal.id, tasks);
             const pacing = calculateGoalPacing(goal, tasks, focusSessions, new Date());
 

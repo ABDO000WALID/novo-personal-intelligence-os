@@ -15,14 +15,11 @@ import {
   synthesizeAttentionInsight,
   synthesizeGoalPacingExplanation,
 } from './alignmentPrompt';
-import { generateDailyBriefing } from '../intelligence/briefingEngine';
 import { analyzeProductivity } from '../intelligence/productivityEngine';
 import { analyzeGoals, analyzeDailyGoalAlignment } from '../intelligence/goalEngine';
 import { analyzeFocus } from '../intelligence/focusEngine';
 import { analyzeFinance } from '../intelligence/financeEngine';
 import { analyzeNotesAndKnowledge } from '../intelligence/notesEngine';
-import { determineNextAction } from '../intelligence/nextActionEngine';
-import { evaluateAttentionRadar } from '../intelligence/attentionEngine';
 import {
   AIMessage,
   AIError,
@@ -242,6 +239,13 @@ export class AIOrchestrator {
 
         let feedbackAr = parseResult.command.feedbackAr;
         let feedbackEn = parseResult.command.feedbackEn;
+        // Strictly consume canonical briefing from request.context or parsed payload
+        const canonicalBriefing = request.context?.briefing ?? payload.briefing;
+        if (canonicalBriefing) {
+          payload.briefing = canonicalBriefing;
+          feedbackAr = formatDailyBriefingFeedback(canonicalBriefing, 'ar');
+          feedbackEn = formatDailyBriefingFeedback(canonicalBriefing, 'en');
+        }
 
         // If context is provided, re-derive the authoritative briefing with live store/context data
         if (request.context) {
