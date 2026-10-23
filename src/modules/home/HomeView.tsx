@@ -57,13 +57,20 @@ export function HomeView() {
     nextAction,
   } = useIntelligence();
 
+  // جلبنا دالة إنشاء المهمة هنا
   const toggleTask = useTaskStore(state => state.toggleTask);
+  const createTask = useTaskStore(state => state.createTask);
 
   const handleExecuteNextAction = async () => {
     if (nextAction.type !== 'existing_task') {
       return;
     }
     await toggleTask(nextAction.selectedTaskId);
+  };
+
+  // دالة التعامل مع إنشاء مهمة جديدة
+  const handleCreateNextAction = async (title: string) => {
+    await createTask(title);
   };
 
   const handleSendPrompt = () => {
@@ -306,7 +313,11 @@ export function HomeView() {
           </div>
         )}
 
-        <ProactiveOSSurface onExecuteNextAction={handleExecuteNextAction} />
+        {/* تم تمرير الدالة الجديدة هنا */}
+        <ProactiveOSSurface 
+          onExecuteNextAction={handleExecuteNextAction} 
+          onCreateNextAction={handleCreateNextAction} 
+        />
 
         {/* Home metrics and additional panels */}
       </section>

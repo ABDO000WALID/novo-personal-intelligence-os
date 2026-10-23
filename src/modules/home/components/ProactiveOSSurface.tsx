@@ -117,8 +117,10 @@ function IntelligenceSection({
 
 export default function ProactiveOSSurface({
   onExecuteNextAction,
+  onCreateNextAction,
 }: {
   onExecuteNextAction?: (taskId: string) => void | Promise<void>;
+  onCreateNextAction?: (title: string) => void | Promise<void>;
 }) {
   const { getContext } = useIntelligence();
   const context = getContext();
@@ -126,27 +128,54 @@ export default function ProactiveOSSurface({
   const [confirmingNextAction, setConfirmingNextAction] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionError, setExecutionError] = useState<string | null>(null);
+  
+  // Phase 4C: Local state for new task input
+  const [newTaskTitle, setNewTaskTitle] = useState("");
 
   const nextAction = context.nextAction;
-  const canExecuteNextAction =
-    nextAction.type === "existing_task" &&
+  
+  // Gate 22 Phase 4B: Existing Task Execution
+  const canExecuteExisting =
+    nextAction?.type === "existing_task" &&
     typeof nextAction.selectedTaskId === "string" &&
     typeof onExecuteNextAction === "function";
 
-  const handleConfirmNextAction = async () => {
-    // Handler Protection: Prevent double execution
-    if (!canExecuteNextAction || isExecuting) {
-      return;
-    }
+  // Gate 22 Phase 4C: New Task Execution
+ const canExecuteNew =
+  nextAction?.type === "new_task_required" &&
+  typeof onCreateNextAction === "function";
+
+  const handleConfirmExisting = async () => {
+    if (!canExecuteExisting || isExecuting) return;
 
     setIsExecuting(true);
     setExecutionError(null);
 
     try {
       await onExecuteNextAction(nextAction.selectedTaskId);
-      setConfirmingNextAction(false); // Only close on success
+      setConfirmingNextAction(false); 
     } catch (error) {
       setExecutionError("تعذر إكمال المهمة. يرجى المحاولة مرة أخرى.");
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+
+  const handleConfirmNew = async () => {
+    if (!canExecuteNew || isExecuting) return;
+    
+    const trimmedTitle = newTaskTitle.trim();
+    if (!trimmedTitle) return;
+
+    setIsExecuting(true);
+    setExecutionError(null);
+
+    try {
+      await onCreateNextAction(trimmedTitle);
+      setNewTaskTitle(""); // Clear input only on success
+      setConfirmingNextAction(false);
+    } catch (error) {
+      setExecutionError("تعذر إنشاء المهمة. يرجى المحاولة مرة أخرى.");
     } finally {
       setIsExecuting(false);
     }
@@ -156,6 +185,7 @@ export default function ProactiveOSSurface({
     if (isExecuting) return;
     setConfirmingNextAction(false);
     setExecutionError(null);
+    setNewTaskTitle("");
   };
 
   return (
@@ -186,7 +216,8 @@ export default function ProactiveOSSurface({
         title="الخطوة التالية المقترحة"
         value={context.nextAction}
       >
-        {canExecuteNextAction && (
+        {/* Phase 4B: Existing Task UI */}
+        {canExecuteExisting && (
           <div className="mt-4 flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2">
               {!confirmingNextAction ? (
@@ -203,7 +234,7 @@ export default function ProactiveOSSurface({
                   <button
                     type="button"
                     data-testid="next-action-confirm-btn"
-                    onClick={handleConfirmNextAction}
+                    onClick={handleConfirmExisting}
                     disabled={isExecuting}
                     className={`rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors ${
                       isExecuting
@@ -231,9 +262,78 @@ export default function ProactiveOSSurface({
               )}
             </div>
 
-            {/* Error Message UI */}
             {executionError && (
               <p data-testid="next-action-error" className="text-sm font-medium text-rose-400">
+                {executionError}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Phase 4C: New Task UI */}
+        {canExecuteNew && (
+          <div className="mt-4 flex flex-col gap-3">
+            {!confirmingNextAction ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="new-task-execute-btn"
+                  onClick={() => setConfirmingNextAction(true)}
+                  className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-violet-500"
+                >
+                  إضافة المهمة
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <input
+                  type="text"
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  placeholder="اكتب عنوان المهمة هنا..."
+                  disabled={isExecuting}
+                  autoFocus
+                  className="w-full sm:w-2/3 rounded-lg border border-white/10 bg-black/20 p-2.5 text-sm text-white placeholder-white/40 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 disabled:opacity-50"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && newTaskTitle.trim()) {
+                      e.preventDefault();
+                      handleConfirmNew();
+                    }
+                  }}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    data-testid="new-task-confirm-btn"
+                    onClick={handleConfirmNew}
+                    disabled={isExecuting || !newTaskTitle.trim()}
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors ${
+                      isExecuting || !newTaskTitle.trim()
+                        ? "bg-emerald-600/50 cursor-not-allowed"
+                        : "bg-emerald-600 hover:bg-emerald-500"
+                    }`}
+                  >
+                    {isExecuting ? "جاري الإنشاء..." : "تأكيد الإنشاء"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCancelConfirmation}
+                    disabled={isExecuting}
+                    className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
+                      isExecuting
+                        ? "border-white/5 bg-white/[0.02] text-white/40 cursor-not-allowed"
+                        : "border-white/10 bg-white/[0.04] text-white/80 hover:bg-white/[0.08]"
+                    }`}
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {executionError && (
+              <p className="text-sm font-medium text-rose-400">
                 {executionError}
               </p>
             )}
