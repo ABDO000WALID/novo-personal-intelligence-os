@@ -263,10 +263,7 @@ export function GoalsView() {
             const activity = {
               total: pacing?.linkedTaskCount ?? 0,
               completed: pacing?.completedLinkedTaskCount ?? 0,
-            };
-            const activity = getGoalTaskActivity(goal.id, tasks);
-            const pacing = calculateGoalPacing(goal, tasks, focusSessions, new Date());
-
+              };
             const getActivityBadgeStyle = (state: string) => {
               switch (state) {
                 case 'Active':
