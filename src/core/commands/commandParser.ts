@@ -9,6 +9,7 @@ import {
   DailyBriefingCommandPayload,
   NextActionCommandPayload,
   NOVOCommand,
+  StructuredActionIntent,
 } from './commandTypes';
 import { NOVOContext } from '../intelligence/intelligenceTypes';
 import { analyzeDailyGoalAlignment, analyzeGoals } from '../intelligence/goalEngine';
@@ -2126,4 +2127,48 @@ export function parseGoalCreationCommand(
     description: '',
     initialProgress: 0,
   };
+}
+
+/**
+ * GATE 23: Deterministic Intent Extraction
+ * Extracts a StructuredActionIntent safely without LLM hallucination.
+ */
+export function extractActionIntent(
+  rawInput: string,
+  availableTasks: { id: string; title: string }[] = []
+): StructuredActionIntent | null {
+  if (!rawInput || typeof rawInput !== 'string') return null;
+  const normalized = normalizeText(rawInput);
+
+  // 1. Check "Complete Task" Intent
+  const completeKeywords = ['خلص', 'أكمل', 'اكمل', 'انهاء', 'انهي', 'complete', 'finish', 'done'];
+  const isComplete = completeKeywords.some(kw => normalized.includes(normalizeText(kw)));
+
+  if (isComplete) {
+    const matches = availableTasks.filter(task => 
+      task && task.title && normalized.includes(normalizeText(task.title))
+    );
+
+    if (matches.length === 1) {
+      return {
+        action: 'complete_task',
+        taskId: matches[0].id,
+        taskTitle: matches[0].title
+      };
+    }
+    return null; // No hallucination allowed
+  }
+
+  // 2. Check "Create Task" Intent (Reusing existing canonical parser to strip metadata from title)
+  const taskPayload = parseTaskCreationCommand(rawInput);
+  if (taskPayload) {
+    return {
+      action: 'create_task',
+      title: taskPayload.title,
+      priority: taskPayload.priority,
+      date: taskPayload.date
+    };
+  }
+
+  return null;
 }

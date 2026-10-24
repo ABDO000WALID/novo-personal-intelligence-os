@@ -1,3 +1,5 @@
+import { ChatActionProposal } from '../core/commands/commandTypes';
+
 export interface Note {
   id: string;
   title: string;
@@ -59,6 +61,7 @@ export interface ChatMessage {
   content: string;
   createdAt: string;
   replyToMessageId?: string;
+  actionProposal?: ChatActionProposal; // <-- GATE 23 STEP 3B: TRANSIENT CHAT PROPOSAL STATE
 }
 
 export interface Conversation {

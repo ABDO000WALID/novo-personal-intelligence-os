@@ -5,10 +5,12 @@ import { useChatStore } from '../../../core/state/chatStore';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { AuthLifecycle } from '../../../core/auth/authLifecycle';
 import { NOVOContext } from '../../../core/intelligence/intelligenceTypes';
+import { useTaskStore } from '../../../core/state/taskStore'; // <-- ADDED
 import {
   TaskActionProposal,
   GoalProgressActionProposal,
   GoalActionProposal,
+  ChatActionProposal, // <-- ADDED
 } from '../../../core/commands/commandTypes';
 import {
   AIError,
@@ -24,7 +26,7 @@ export interface UseChatOrchestratorProps {
 }
 
 export interface UseChatOrchestratorResult {
-  executionState: ChatExecutionState;
+  executionState: ChatExecutionState | 'executing';
   error: AIError | null;
   lastCommandFeedback: { ar: string; en: string } | null;
   activeProposal: TaskActionProposal | null;
@@ -36,6 +38,8 @@ export interface UseChatOrchestratorResult {
   clearGoalProgressProposal: () => void;
   clearGoalProposal: () => void;
   clearError: () => void;
+  confirmProposal: (proposal: ChatActionProposal, messageId: string) => Promise<void>; // <-- ADDED
+  resolvedChatProposals: Set<string>; // <-- ADDED
 }
 
 export function useChatOrchestrator({
@@ -43,7 +47,7 @@ export function useChatOrchestrator({
   onCommandNavigate,
   language = 'ar',
 }: UseChatOrchestratorProps): UseChatOrchestratorResult {
-  const [executionState, setExecutionState] = useState<ChatExecutionState>('idle');
+  const [executionState, setExecutionState] = useState<ChatExecutionState | 'executing'>('idle');
   const [error, setError] = useState<AIError | null>(null);
   const [lastCommandFeedback, setLastCommandFeedback] = useState<{
     ar: string;
@@ -52,6 +56,7 @@ export function useChatOrchestrator({
   const [activeProposal, setActiveProposal] = useState<TaskActionProposal | null>(null);
   const [activeGoalProgressProposal, setActiveGoalProgressProposal] = useState<GoalProgressActionProposal | null>(null);
   const [activeGoalProposal, setActiveGoalProposal] = useState<GoalActionProposal | null>(null);
+  const [resolvedChatProposals, setResolvedChatProposals] = useState<Set<string>>(new Set());
 
   const lastSubmittedMessageRef = useRef<string | null>(null);
   const isSubmittingRef = useRef<boolean>(false);
@@ -91,7 +96,6 @@ export function useChatOrchestrator({
         setLastCommandFeedback(result.commandFeedback);
       }
       if (result.commandTargetRoute && onCommandNavigate) {
-        // Delay navigation slightly to allow UI to show feedback and state to settle
         const target = result.commandTargetRoute;
         onCommandNavigate(target);
       }
@@ -99,11 +103,65 @@ export function useChatOrchestrator({
     [onCommandNavigate]
   );
 
+  // GATE 23 STEP 3E: confirmProposal implementation
+  const confirmProposal = useCallback(
+    async (proposal: ChatActionProposal, messageId: string) => {
+      if (executionState === 'executing') return;
+
+      setError(null);
+      setExecutionState('executing');
+
+      try {
+        const taskStore = useTaskStore.getState();
+
+        if (proposal.type === 'existing_task') {
+          // Explicit mapping to existing execution paths
+          if (typeof (taskStore as any).toggleTask === 'function') {
+            await (taskStore as any).toggleTask(proposal.taskId);
+          } else {
+             throw new Error("toggleTask method not found in store");
+          }
+        } else if (proposal.type === 'new_task_required') {
+          const title = proposal.title || (language === 'ar' ? 'مهمة جديدة' : 'New Task');
+          const date = new Date().toISOString().split('T')[0];
+          
+          if (typeof (taskStore as any).createTask === 'function') {
+            await (taskStore as any).createTask(title, 'medium', date);
+          } else if (typeof (taskStore as any).addTask === 'function') {
+            await (taskStore as any).addTask({
+               id: 'temp-' + Date.now(), 
+               title, 
+               priority: 'medium', 
+               date, 
+               completed: false, 
+               createdAt: new Date().toISOString() 
+            });
+          } else {
+             throw new Error("createTask/addTask method not found in store");
+          }
+        }
+
+        // On success, mark this specific proposal as resolved to hide it safely
+        setResolvedChatProposals((prev) => new Set(prev).add(messageId));
+        setExecutionState('idle');
+      } catch (e: any) {
+        console.error('[useChatOrchestrator] Failed to execute proposal:', e);
+        setError({
+          code: 'REQUEST_FAILED',
+          message: 'Failed to execute proposal.',
+          messageAr: 'تعذر تنفيذ الاقتراح. يرجى المحاولة مرة أخرى.',
+          retryable: true,
+        });
+        // Leave proposal active/visible on failure so user can retry
+        setExecutionState('idle'); 
+      }
+    },
+    [executionState, language]
+  );
+
   const submitMessage = useCallback(
     async (message: string): Promise<ChatOrchestrationResult> => {
-      // Synchronous mutex lock to prevent concurrent submissions
       if (isSubmittingRef.current) {
-        console.warn('[useChatOrchestrator] Submission rejected: message already in flight');
         return {
           handledAsCommand: false,
           error: {
@@ -144,10 +202,7 @@ export function useChatOrchestrator({
           };
           setError(errorResult);
           setExecutionState('idle');
-          return {
-            handledAsCommand: false,
-            error: errorResult,
-          };
+          return { handledAsCommand: false, error: errorResult };
         }
 
         if (!authUser || !uid) {
@@ -159,10 +214,7 @@ export function useChatOrchestrator({
           };
           setError(errorResult);
           setExecutionState('idle');
-          return {
-            handledAsCommand: false,
-            error: errorResult,
-          };
+          return { handledAsCommand: false, error: errorResult };
         }
 
         lastSubmittedMessageRef.current = trimmed;
@@ -171,7 +223,6 @@ export function useChatOrchestrator({
         const state = useChatStore.getState();
         const sendMessage = state.sendMessage;
 
-        // 1. Persist the user message to the active conversation thread
         let originConvId: string | undefined;
         let userMessageId: string | undefined;
         try {
@@ -195,20 +246,14 @@ export function useChatOrchestrator({
           };
           setError(errorResult);
           setExecutionState('idle');
-          return {
-            handledAsCommand: false,
-            error: errorResult,
-          };
+          return { handledAsCommand: false, error: errorResult };
         }
         
         const updatedState = useChatStore.getState();
         const activeConversation = originConvId ? updatedState.conversations.find(c => c.id === originConvId) : null;
-
-        // 2. Prepare workspace context snapshot from single source of truth
         const context = getContext();
         setExecutionState('generating');
 
-        // 3. Delegate to provider-independent AI Orchestrator
         const result = await aiOrchestrator.orchestrate({
           message: trimmed,
           messageId: userMessageId,
@@ -217,7 +262,6 @@ export function useChatOrchestrator({
           language,
         });
 
-        // 4. Handle result
         if (result.handledAsCommand) {
           setExecutionState('idle');
           applyCommandResult(result, userMessageId);
@@ -236,10 +280,7 @@ export function useChatOrchestrator({
             };
             setError(errorResult);
             setExecutionState('idle');
-            return {
-              handledAsCommand: false,
-              error: errorResult,
-            };
+            return { handledAsCommand: false, error: errorResult };
           }
           setExecutionState('idle');
           setError(null);
@@ -266,11 +307,7 @@ export function useChatOrchestrator({
   );
 
   const retryLastMessage = useCallback(async (): Promise<ChatOrchestrationResult | null> => {
-    if (isSubmittingRef.current) {
-      console.warn('[useChatOrchestrator] Retry rejected: message already in flight');
-      return null;
-    }
-
+    if (isSubmittingRef.current) return null;
     isSubmittingRef.current = true;
 
     try {
@@ -279,7 +316,6 @@ export function useChatOrchestrator({
       const activeConversation = originConvId ? state.conversations.find(c => c.id === originConvId) : null;
       const sendMessage = state.sendMessage;
       if (!lastSubmittedMessageRef.current) {
-        // Find the last user message from conversation
         const lastUserMsg = activeConversation?.messages
           .slice()
           .reverse()
@@ -293,7 +329,6 @@ export function useChatOrchestrator({
       setExecutionState('generating');
       
       const context = getContext();
-
       const lastUserMsg = activeConversation?.messages
         .slice()
         .reverse()
@@ -326,10 +361,7 @@ export function useChatOrchestrator({
             };
             setError(errorResult);
             setExecutionState('idle');
-            return {
-              handledAsCommand: false,
-              error: errorResult,
-            };
+            return { handledAsCommand: false, error: errorResult };
           }
         }
         setExecutionState('idle');
@@ -352,7 +384,6 @@ export function useChatOrchestrator({
       setExecutionState('idle');
       return result;
     } catch (e: any) {
-      console.error('[useChatOrchestrator] Retry unexpected rejection:', e);
       const errorResult: AIError = {
         code: 'REQUEST_FAILED',
         message: e?.message || 'Failed to process retry request.',
@@ -360,10 +391,7 @@ export function useChatOrchestrator({
         retryable: true,
       };
       setError(errorResult);
-      return {
-        handledAsCommand: false,
-        error: errorResult,
-      };
+      return { handledAsCommand: false, error: errorResult };
     } finally {
       setExecutionState('idle');
       isSubmittingRef.current = false;
@@ -383,5 +411,7 @@ export function useChatOrchestrator({
     clearGoalProgressProposal,
     clearGoalProposal,
     clearError,
+    confirmProposal, // <-- ADDED
+    resolvedChatProposals, // <-- ADDED
   };
 }

@@ -28,6 +28,7 @@ import {
   ShieldAlert,
   RotateCw,
   AlertCircle,
+  Lightbulb,
 } from 'lucide-react';
 
 import { LiveChatSurface } from './components/LiveChatSurface';
@@ -76,6 +77,8 @@ export function ChatView() {
     clearGoalProgressProposal,
     clearGoalProposal,
     clearError,
+    confirmProposal, // <-- ADDED GATE 23
+    resolvedChatProposals, // <-- ADDED GATE 23
   } = useChatOrchestrator({
     getContext,
     onCommandNavigate: (route) => setActiveRoute(route),
@@ -639,6 +642,43 @@ export function ChatView() {
                           </span>
                         </div>
                       </div>
+                      
+                      {/* --- GATE 23 STEP 3E: EXECUTABLE PROPOSAL CARD --- */}
+                      {msg.actionProposal && !resolvedChatProposals.has(msg.id) && (
+                        <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} my-2`}>
+                          <div className="max-w-xl w-full p-3 rounded-xl bg-zinc-900/80 border border-violet-500/30 text-xs text-zinc-200 flex flex-col gap-3 shadow-sm">
+                            <div className="flex items-start gap-3">
+                              <div className="p-1.5 rounded-lg bg-violet-500/10 text-violet-400 shrink-0">
+                                <Lightbulb className="w-4 h-4" />
+                              </div>
+                              <div className="space-y-1 flex-1">
+                                <div className="font-semibold text-violet-300">
+                                  {isAr ? 'مقترح ذكي جاهز للمراجعة' : 'Smart Proposal Ready for Review'}
+                                </div>
+                                <div className="text-zinc-400 leading-snug">
+                                  {msg.actionProposal.type === 'existing_task' 
+                                    ? (isAr ? `إنجاز مهمة موجودة في مساحة العمل (ID: ${msg.actionProposal.taskId})` : `Complete existing task (ID: ${msg.actionProposal.taskId})`)
+                                    : (isAr ? `توليد مهمة جديدة: "${msg.actionProposal.title || 'بدون عنوان'}"` : `Generate new task: "${msg.actionProposal.title || 'Untitled'}"`)}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex justify-end pt-2 border-t border-zinc-800/60">
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => confirmProposal(msg.actionProposal!, msg.id)}
+                                disabled={executionState === 'executing'}
+                                className="bg-violet-600 hover:bg-violet-500 text-white px-4 py-1.5"
+                              >
+                                {executionState === 'executing' 
+                                  ? (isAr ? 'جاري التنفيذ...' : 'Executing...') 
+                                  : (isAr ? 'تأكيد التنفيذ' : 'Confirm & Execute')}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {/* -------------------------------------------------------- */}
 
                       {/* Active Task Creation Proposal Anchored to originating message */}
                       {attachTaskProposal && (

@@ -156,3 +156,42 @@ export interface CommandParseResult {
   command?: NOVOCommand;
 }
 
+// --- GATE 23: STRUCTURED ACTION INTENT ---
+
+export type StructuredActionIntent =
+  | {
+      action: 'create_task';
+      title: string;
+      priority: TaskPriority;
+      date: string;
+    }
+  | {
+      action: 'complete_task';
+      taskId: string;
+      taskTitle: string;
+    };
+
+export type CommandExecutionStatus =
+  | 'pending'
+  | 'executing'
+  | 'completed'
+  | 'cancelled'
+  | 'failed';
+
+export interface CommandExecutionProposal {
+  id: string;
+  intent: StructuredActionIntent;
+  status: CommandExecutionStatus;
+  error?: string;
+}
+// --- GATE 23 STEP 3A: TRANSIENT CHAT ACTION PROPOSAL ---
+
+export type ChatActionProposal =
+  | {
+      type: 'existing_task';
+      taskId: string;
+    }
+  | {
+      type: 'new_task_required';
+      title?: string;
+    };
