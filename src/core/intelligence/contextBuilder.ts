@@ -93,7 +93,16 @@ export function buildAIGroundedContext(
     sections.push(`## Active Insights\n${insightLines}`);
   }
 
-  // 7. Recommended Next Action (Gate 20-C / 21 Parity)
+  // 7. Canonical Daily Briefing
+  if (context.briefing) {
+    const br = context.briefing as any;
+    // Safely extract meaningful fields without throwing or assuming strict exact types
+    const summary = br.summary || br.overview || br.message || 'None';
+    const recommendation = br.recommendation || br.suggestedAction || 'None';
+    sections.push(`## Canonical Daily Briefing\n- Summary: ${summary}\n- Recommendation: ${recommendation}`);
+  }
+
+  // 8. Recommended Next Action (Gate 20-C / 21 Parity)
   if (context.nextAction) {
     const na = context.nextAction;
     let naDesc = 'None';
@@ -107,23 +116,23 @@ export function buildAIGroundedContext(
     sections.push(`## Recommended Next Action\n- Type: ${na.type}\n- Action: ${naDesc}`);
   }
 
-  // 8. Attention Radar (Gate 20-C / 21 Parity)
+  // 9. Canonical Attention Radar
   if (context.attentionRadar) {
     const ar = context.attentionRadar;
     let arDesc = 'Workspace in equilibrium';
     if (ar.type === 'overdue_task') {
-      arDesc = `Overdue task: "${ar.selectedTaskTitle}" (${ar.daysOverdue} days overdue, ${ar.taskPriority} priority)`;
+      arDesc = `Overdue task: "${(ar as any).selectedTaskTitle}" (${(ar as any).daysOverdue} days overdue, ${(ar as any).taskPriority} priority)`;
     } else if (ar.type === 'stalled_goal') {
-      arDesc = `Stalled goal: "${ar.selectedGoalTitle}" (${ar.daysInactive} days inactive, ${ar.currentProgress}% progress)`;
+      arDesc = `Stalled goal: "${(ar as any).selectedGoalTitle}" (${(ar as any).daysInactive} days inactive, ${(ar as any).currentProgress}% progress)`;
     } else if (ar.type === 'urgent_today_task') {
-      arDesc = `High priority task today: "${ar.selectedTaskTitle}"`;
+      arDesc = `High priority task today: "${(ar as any).selectedTaskTitle}"`;
     } else if (ar.type === 'focus_deficit') {
-      arDesc = `Focus deficit: ${ar.pendingTasksTodayCount} pending tasks with only ${ar.todayFocusMinutes}m focus logged`;
+      arDesc = `Focus deficit: ${(ar as any).pendingTasksTodayCount} pending tasks with only ${(ar as any).todayFocusMinutes}m focus logged`;
     }
-    sections.push(`## Attention Radar\n- Alert Type: ${ar.type}\n- Detail: ${arDesc}`);
+    sections.push(`## Canonical Attention Radar\n- Alert Type: ${ar.type}\n- Detail: ${arDesc}`);
   }
 
-  // 9. Goal Pacing & Velocity (Gate 20-C / 21 Parity)
+  // 10. Goal Pacing & Velocity (Gate 20-C / 21 Parity)
   if (context.goalPacing && context.goalPacing.length > 0) {
     const pacingLines = context.goalPacing
       .slice(0, 10)
@@ -140,6 +149,7 @@ export function buildAIGroundedContext(
 
 export function buildAISystemContext(context: NOVOContext, userIntent?: string): string {
   const groundedContext = buildAIGroundedContext(context, { userIntent });
+
   return `You are NOVO, an executive personal intelligence operating system.
 You provide thoughtful, concise, and structured guidance in Arabic or English based on the user's current state.
 
@@ -147,6 +157,11 @@ CRITICAL INSTRUCTION:
 - You must ONLY use the data provided in the "Current User Workspace State" section below.
 - Do NOT fabricate, assume, or make up placeholder statistics (e.g. do not invent numbers for tasks, balances, or goals).
 - If a section says "INSUFFICIENT DATA" or has 0 items, you MUST explicitly tell the user that there is no data available for that metric, and encourage them to add some.
+- When the user sends a generic greeting (e.g. "Hello", "صباح الخير") or asks for a general update, do NOT simply return a greeting. Act proactively by inspecting the "Canonical Attention Radar" and "Canonical Daily Briefing" in the provided workspace context.
+- If the Canonical Attention Radar contains an urgent or critical alert, such as overdue tasks or stalled goals, politely surface the most important one first.
+- If there are no urgent or critical attention alerts, briefly summarize the Daily Briefing recommendation.
+- If both the Attention Radar and Daily Briefing indicate equilibrium or have nothing meaningful to surface, provide a standard concise greeting.
+- Keep proactive responses conversational, brief, and executive. Do NOT dump the full briefing, radar, or report.
 
 Current User Workspace State:
 ${groundedContext}`;
