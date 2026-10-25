@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useIntelligence } from "../../../core/intelligence/useIntelligence";
+import { useTaskStore } from "../../../core/state/taskStore";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -134,16 +135,16 @@ export default function ProactiveOSSurface({
 
   const nextAction = context.nextAction;
   
-  // Gate 22 Phase 4B: Existing Task Execution
+  // GATE 25: Real Authenticated Mutation Check
+  // We no longer require the mock `onExecuteNextAction` prop to be passed.
   const canExecuteExisting =
     nextAction?.type === "existing_task" &&
-    typeof nextAction.selectedTaskId === "string" &&
-    typeof onExecuteNextAction === "function";
+    typeof nextAction.selectedTaskId === "string";
 
-  // Gate 22 Phase 4C: New Task Execution
- const canExecuteNew =
-  nextAction?.type === "new_task_required" &&
-  typeof onCreateNextAction === "function";
+  // Gate 22 Phase 4C: New Task Execution (Left untouched for now as per architect)
+  const canExecuteNew =
+    nextAction?.type === "new_task_required" &&
+    typeof onCreateNextAction === "function";
 
   const handleConfirmExisting = async () => {
     if (!canExecuteExisting || isExecuting) return;
@@ -152,7 +153,8 @@ export default function ProactiveOSSurface({
     setExecutionError(null);
 
     try {
-      await onExecuteNextAction(nextAction.selectedTaskId);
+      // GATE 25: Real production execution path crossed!
+      await useTaskStore.getState().toggleTask(nextAction.selectedTaskId as string);
       setConfirmingNextAction(false); 
     } catch (error) {
       setExecutionError("تعذر إكمال المهمة. يرجى المحاولة مرة أخرى.");
