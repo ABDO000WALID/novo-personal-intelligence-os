@@ -14,6 +14,8 @@ export interface TaskState {
   createTask: (title: string, priority?: TaskPriority, date?: string, goalId?: string) => Promise<Task>;
   updateTask: (id: string, updates: Partial<Pick<Task, 'title' | 'priority' | 'date' | 'completed' | 'goalId'>>) => Promise<void>;
   toggleTask: (id: string) => Promise<void>;
+  // GATE 27: Idempotent completion intent
+  completeTask: (id: string) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   clearState: () => void;
 }
@@ -128,6 +130,15 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     const task = get().tasks.find(t => t.id === id);
     if (!task) return;
     await get().updateTask(id, { completed: !task.completed });
+  },
+
+  // GATE 27: Idempotent completion intent
+  completeTask: async (id: string) => {
+    const authGuard = AuthLifecycle.createGuard();
+    const task = get().tasks.find(t => t.id === id);
+    // Intent Enforcement: Do nothing if task doesn't exist or is already completed
+    if (!task || task.completed) return;
+    await get().updateTask(id, { completed: true });
   },
 
   deleteTask: async (id: string) => {

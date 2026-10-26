@@ -130,36 +130,54 @@ export default function ProactiveOSSurface({
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionError, setExecutionError] = useState<string | null>(null);
   
+  // GATE 27: Ambiguous state lock for prolonged timeouts
+  const [isAmbiguous, setIsAmbiguous] = useState(false);
+  
   // Phase 4C: Local state for new task input
   const [newTaskTitle, setNewTaskTitle] = useState("");
 
   const nextAction = context.nextAction;
   
   // GATE 25: Real Authenticated Mutation Check
-  // We no longer require the mock `onExecuteNextAction` prop to be passed.
   const canExecuteExisting =
     nextAction?.type === "existing_task" &&
     typeof nextAction.selectedTaskId === "string";
 
-  // Gate 22 Phase 4C: New Task Execution (Left untouched for now as per architect)
+  // Gate 22 Phase 4C: New Task Execution
   const canExecuteNew =
     nextAction?.type === "new_task_required" &&
     typeof onCreateNextAction === "function";
 
   const handleConfirmExisting = async () => {
-    if (!canExecuteExisting || isExecuting) return;
+    // Prevent duplicate clicks or clicks while in an ambiguous state
+    if (!canExecuteExisting || isExecuting || isAmbiguous) return;
 
     setIsExecuting(true);
     setExecutionError(null);
 
     try {
-      // GATE 25: Real production execution path crossed!
-      await useTaskStore.getState().toggleTask(nextAction.selectedTaskId as string);
+      const taskId = nextAction.selectedTaskId as string;
+      
+      // GATE 27: Timeout Race (8 seconds)
+      const mutationPromise = useTaskStore.getState().completeTask(taskId);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("TIMEOUT_AMBIGUOUS")), 8000)
+      );
+
+      await Promise.race([mutationPromise, timeoutPromise]);
+      
       setConfirmingNextAction(false); 
-    } catch (error) {
-      setExecutionError("تعذر إكمال المهمة. يرجى المحاولة مرة أخرى.");
-    } finally {
       setIsExecuting(false);
+    } catch (error: any) {
+      if (error.message === "TIMEOUT_AMBIGUOUS") {
+        // GATE 27: Prolonged execution fallback
+        setExecutionError("لم نتمكن من تأكيد النتيجة بسبب ضعف الاتصال. يرجى تحديث الصفحة لاحقاً.");
+        setIsAmbiguous(true);
+        // We deliberately do NOT set isExecuting(false) here to permanently lock the button for this session
+      } else {
+        setExecutionError("تعذر إكمال المهمة. يرجى المحاولة مرة أخرى.");
+        setIsExecuting(false);
+      }
     }
   };
 
@@ -237,23 +255,23 @@ export default function ProactiveOSSurface({
                     type="button"
                     data-testid="next-action-confirm-btn"
                     onClick={handleConfirmExisting}
-                    disabled={isExecuting}
+                    disabled={isExecuting || isAmbiguous}
                     className={`rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors ${
-                      isExecuting
+                      (isExecuting || isAmbiguous)
                         ? "bg-emerald-600/50 cursor-not-allowed"
                         : "bg-emerald-600 hover:bg-emerald-500"
                     }`}
                   >
-                    {isExecuting ? "جاري التنفيذ..." : "تأكيد التنفيذ"}
+                    {isExecuting && !isAmbiguous ? "جاري التنفيذ..." : isAmbiguous ? "غير مؤكد" : "تأكيد التنفيذ"}
                   </button>
 
                   <button
                     type="button"
                     data-testid="next-action-cancel-btn"
                     onClick={handleCancelConfirmation}
-                    disabled={isExecuting}
+                    disabled={isExecuting || isAmbiguous}
                     className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
-                      isExecuting
+                      (isExecuting || isAmbiguous)
                         ? "border-white/5 bg-white/[0.02] text-white/40 cursor-not-allowed"
                         : "border-white/10 bg-white/[0.04] text-white/80 hover:bg-white/[0.08]"
                     }`}
@@ -265,7 +283,7 @@ export default function ProactiveOSSurface({
             </div>
 
             {executionError && (
-              <p data-testid="next-action-error" className="text-sm font-medium text-rose-400">
+              <p data-testid="next-action-error" className={`text-sm font-medium ${isAmbiguous ? "text-amber-400" : "text-rose-400"}`}>
                 {executionError}
               </p>
             )}
