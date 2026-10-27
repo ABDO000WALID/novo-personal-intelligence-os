@@ -10,11 +10,11 @@ export interface TaskState {
   status: StoreStatus;
   error: string | null;
   lastUpdated: number;
+  _unsubscribe: (() => void) | null; // GATE 28: Manage subscription lifecycle
   initialize: () => Promise<void>;
   createTask: (title: string, priority?: TaskPriority, date?: string, goalId?: string) => Promise<Task>;
   updateTask: (id: string, updates: Partial<Pick<Task, 'title' | 'priority' | 'date' | 'completed' | 'goalId'>>) => Promise<void>;
   toggleTask: (id: string) => Promise<void>;
-  // GATE 27: Idempotent completion intent
   completeTask: (id: string) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   clearState: () => void;
@@ -25,24 +25,65 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   status: 'idle',
   error: null,
   lastUpdated: 0,
+  _unsubscribe: null,
+
   clearState: () => {
+    // GATE 28: Clean up listener on logout or account switch
+    const { _unsubscribe } = get();
+    if (_unsubscribe) {
+      _unsubscribe();
+    }
     set({
       tasks: [],
       status: 'idle',
       error: null,
-      lastUpdated: Date.now()
+      lastUpdated: Date.now(),
+      _unsubscribe: null
     });
   },
-  initialize: async () => {
+
+initialize: async () => {
     const authGuard = AuthLifecycle.createGuard();
-    if (get().status !== 'idle' && get().status !== 'error') return;
+    if (get().status === 'loading' || get().status === 'ready') return;
     
     try {
       set({ status: 'loading' });
       const repo = RepositoryFactory.getTaskRepository();
-      const tasks = await repo.getAll();
-      if (authGuard.isStale()) return;
-      set({ tasks, status: 'ready', error: null, lastUpdated: Date.now() });
+
+      // Clean up any rogue subscriptions before starting a new one
+      const currentUnsub = get()._unsubscribe;
+      if (currentUnsub) currentUnsub();
+
+      // GATE 28: Real-time synchronization
+      await new Promise<void>((resolve, reject) => {
+        let isFirstSnapshot = true;
+
+        const unsubscribe = repo.subscribe((incomingTasks) => {
+          if (authGuard.isStale()) {
+            unsubscribe();
+            if (isFirstSnapshot) reject(new Error('Auth changed during initialization'));
+            return;
+          }
+
+          // GATE 28 BUG FIX: Prevent UI flickering and optimistic state override
+          // Firebase fires twice (cache -> server). Ignore identical redundant snapshots.
+          const currentTasks = get().tasks;
+          const isIdentical = JSON.stringify(currentTasks) === JSON.stringify(incomingTasks);
+
+          if (!isIdentical || isFirstSnapshot) {
+            set({ tasks: incomingTasks, status: 'ready', error: null, lastUpdated: Date.now() });
+          }
+
+          // Resolve the initialize promise only on the first load so the UI doesn't hang
+          if (isFirstSnapshot) {
+            isFirstSnapshot = false;
+            resolve();
+          }
+        });
+
+        set({ _unsubscribe: unsubscribe });
+      });
+
     } catch (err: any) {
       console.error('[TaskStore] Initialization failed:', err);
       if (authGuard.isStale()) return;
@@ -132,11 +173,9 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     await get().updateTask(id, { completed: !task.completed });
   },
 
-  // GATE 27: Idempotent completion intent
   completeTask: async (id: string) => {
     const authGuard = AuthLifecycle.createGuard();
     const task = get().tasks.find(t => t.id === id);
-    // Intent Enforcement: Do nothing if task doesn't exist or is already completed
     if (!task || task.completed) return;
     await get().updateTask(id, { completed: true });
   },
