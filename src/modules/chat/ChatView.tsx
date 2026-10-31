@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect, FormEvent, KeyboardEvent } from 'react';
 import { useApp } from '../../core/providers/AppContext';
-import { Card } from '../../components/ui/Card';
-import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { Badge } from '../../components/ui/Badge';
 import { useChatStore } from '../../core/state/chatStore';
 import { useAuthStore } from '../../core/auth/authStore';
 import { AuthLifecycle } from '../../core/auth/authLifecycle';
@@ -28,13 +27,9 @@ import {
   ShieldAlert,
   RotateCw,
   AlertCircle,
-  Lightbulb,
 } from 'lucide-react';
 
 import { LiveChatSurface } from './components/LiveChatSurface';
-import { TaskProposalCard } from './components/TaskProposalCard';
-import { GoalProgressProposalCard } from './components/GoalProgressProposalCard';
-import { GoalProposalCard } from './components/GoalProposalCard';
 
 export function ChatView() {
   const { language, setActiveRoute } = useApp();
@@ -68,17 +63,9 @@ export function ChatView() {
     executionState,
     error,
     lastCommandFeedback,
-    activeProposal,
-    activeGoalProgressProposal,
-    activeGoalProposal,
     submitMessage,
     retryLastMessage,
-    clearProposal,
-    clearGoalProgressProposal,
-    clearGoalProposal,
     clearError,
-    confirmProposal, // <-- ADDED GATE 23
-    resolvedChatProposals, // <-- ADDED GATE 23
   } = useChatOrchestrator({
     getContext,
     onCommandNavigate: (route) => setActiveRoute(route),
@@ -130,7 +117,6 @@ export function ChatView() {
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) {
-      // Fallback
       if (executionState === 'generating') {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }
@@ -551,38 +537,7 @@ export function ChatView() {
               <div className="space-y-3">
                 {activeConversation.messages.map((msg, index) => {
                   const isUser = msg.role === 'user';
-                  const isLastMessage = index === activeConversation.messages.length - 1;
-
-                  const attachTaskProposal =
-                    activeProposal &&
-                    (activeProposal.originatingMessageId === msg.id ||
-                      (!activeProposal.originatingMessageId &&
-                        isUser &&
-                        !activeConversation.messages.some(
-                          (m) => m.id === activeProposal.originatingMessageId
-                        ) &&
-                        isLastMessage));
-
-                  const attachGoalProgressProposal =
-                    activeGoalProgressProposal &&
-                    (activeGoalProgressProposal.originatingMessageId === msg.id ||
-                      (!activeGoalProgressProposal.originatingMessageId &&
-                        isUser &&
-                        !activeConversation.messages.some(
-                          (m) => m.id === activeGoalProgressProposal.originatingMessageId
-                        ) &&
-                        isLastMessage));
-
-                  const attachGoalProposal =
-                    activeGoalProposal &&
-                    (activeGoalProposal.originatingMessageId === msg.id ||
-                      (!activeGoalProposal.originatingMessageId &&
-                        isUser &&
-                        !activeConversation.messages.some(
-                          (m) => m.id === activeGoalProposal.originatingMessageId
-                        ) &&
-                        isLastMessage));
-
+                  
                   return (
                     <React.Fragment key={msg.id}>
                       <div
@@ -642,146 +597,9 @@ export function ChatView() {
                           </span>
                         </div>
                       </div>
-                      
-                      {/* --- GATE 23 STEP 3E: EXECUTABLE PROPOSAL CARD --- */}
-                      {msg.actionProposal && !resolvedChatProposals.has(msg.id) && (
-                        <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} my-2`}>
-                          <div className="max-w-xl w-full p-3 rounded-xl bg-zinc-900/80 border border-violet-500/30 text-xs text-zinc-200 flex flex-col gap-3 shadow-sm">
-                            <div className="flex items-start gap-3">
-                              <div className="p-1.5 rounded-lg bg-violet-500/10 text-violet-400 shrink-0">
-                                <Lightbulb className="w-4 h-4" />
-                              </div>
-                              <div className="space-y-1 flex-1">
-                                <div className="font-semibold text-violet-300">
-                                  {isAr ? 'مقترح ذكي جاهز للمراجعة' : 'Smart Proposal Ready for Review'}
-                                </div>
-                                <div className="text-zinc-400 leading-snug">
-                                  {msg.actionProposal.type === 'existing_task' 
-                                    ? (isAr ? `إنجاز مهمة موجودة في مساحة العمل (ID: ${msg.actionProposal.taskId})` : `Complete existing task (ID: ${msg.actionProposal.taskId})`)
-                                    : (isAr ? `توليد مهمة جديدة: "${msg.actionProposal.title || 'بدون عنوان'}"` : `Generate new task: "${msg.actionProposal.title || 'Untitled'}"`)}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex justify-end pt-2 border-t border-zinc-800/60">
-                              <Button
-                                type="button"
-                                size="sm"
-                                onClick={() => confirmProposal(msg.actionProposal!, msg.id)}
-                                disabled={executionState === 'executing'}
-                                className="bg-violet-600 hover:bg-violet-500 text-white px-4 py-1.5"
-                              >
-                                {executionState === 'executing' 
-                                  ? (isAr ? 'جاري التنفيذ...' : 'Executing...') 
-                                  : (isAr ? 'تأكيد التنفيذ' : 'Confirm & Execute')}
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      {/* -------------------------------------------------------- */}
-
-                      {/* Active Task Creation Proposal Anchored to originating message */}
-                      {attachTaskProposal && (
-                        <div className="flex justify-start my-2 w-full max-w-lg">
-                          <div className="w-full">
-                            <TaskProposalCard
-                              proposal={activeProposal}
-                              language={language}
-                              onResolved={() => {
-                                // Allow the resolved badge (Confirmed/Cancelled) to remain visible in stream
-                              }}
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Active Goal Progress Proposal Anchored to originating message */}
-                      {attachGoalProgressProposal && (
-                        <div className="flex justify-start my-2 w-full max-w-lg">
-                          <div className="w-full">
-                            <GoalProgressProposalCard
-                              proposal={activeGoalProgressProposal}
-                              language={language}
-                              onResolved={() => {
-                                // Allow the resolved badge (Confirmed/Cancelled) to remain visible in stream
-                              }}
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Active Goal Creation Proposal Anchored to originating message */}
-                      {attachGoalProposal && (
-                        <div className="flex justify-start my-2 w-full max-w-lg">
-                          <div className="w-full">
-                            <GoalProposalCard
-                              proposal={activeGoalProposal}
-                              language={language}
-                              onResolved={() => {
-                                // Allow the resolved badge (Confirmed/Cancelled) to remain visible in stream
-                              }}
-                            />
-                          </div>
-                        </div>
-                      )}
                     </React.Fragment>
                   );
                 })}
-
-                {/* Fallback for unanchored proposals if originating message is not in view list */}
-                {activeProposal &&
-                  !activeConversation.messages.some(
-                    (m) =>
-                      activeProposal.originatingMessageId === m.id ||
-                      (!activeProposal.originatingMessageId &&
-                        m === activeConversation.messages[activeConversation.messages.length - 1])
-                  ) && (
-                    <div className="flex justify-start my-2 w-full max-w-lg">
-                      <div className="w-full">
-                        <TaskProposalCard
-                          proposal={activeProposal}
-                          language={language}
-                          onResolved={() => {}}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                {activeGoalProgressProposal &&
-                  !activeConversation.messages.some(
-                    (m) =>
-                      activeGoalProgressProposal.originatingMessageId === m.id ||
-                      (!activeGoalProgressProposal.originatingMessageId &&
-                        m === activeConversation.messages[activeConversation.messages.length - 1])
-                  ) && (
-                    <div className="flex justify-start my-2 w-full max-w-lg">
-                      <div className="w-full">
-                        <GoalProgressProposalCard
-                          proposal={activeGoalProgressProposal}
-                          language={language}
-                          onResolved={() => {}}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                {activeGoalProposal &&
-                  !activeConversation.messages.some(
-                    (m) =>
-                      activeGoalProposal.originatingMessageId === m.id ||
-                      (!activeGoalProposal.originatingMessageId &&
-                        m === activeConversation.messages[activeConversation.messages.length - 1])
-                  ) && (
-                    <div className="flex justify-start my-2 w-full max-w-lg">
-                      <div className="w-full">
-                        <GoalProposalCard
-                          proposal={activeGoalProposal}
-                          language={language}
-                          onResolved={() => {}}
-                        />
-                      </div>
-                    </div>
-                  )}
 
                 {executionState === 'generating' && (
                   <div className="flex justify-start">
@@ -847,8 +665,8 @@ export function ChatView() {
             <ShieldAlert className="w-3.5 h-3.5 text-violet-400 shrink-0" />
             <span>
               {isAr
-                ? 'محرك التنسيق الذكي (AI Orchestrator) مفعل — توجيه الأوامر المباشرة وبناء السياق جاهز للمرحلة 3B.'
-                : 'AI Orchestrator core active — command routing and grounded context ready for Phase 3B.'}
+                ? 'محرك التنسيق الذكي (AI Orchestrator) مفعل — الأوامر تتنفذ تلقائياً في الخلفية.'
+                : 'AI Orchestrator core active — commands execute automatically in background.'}
             </span>
           </div>
 

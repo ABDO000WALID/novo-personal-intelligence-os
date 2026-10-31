@@ -1,16 +1,16 @@
 import { useState, useCallback, useRef } from 'react';
 import { RouteId } from '../../../types/navigation';
-import { Conversation } from '../../../types/data';
 import { useChatStore } from '../../../core/state/chatStore';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { AuthLifecycle } from '../../../core/auth/authLifecycle';
 import { NOVOContext } from '../../../core/intelligence/intelligenceTypes';
-import { useTaskStore } from '../../../core/state/taskStore'; // <-- ADDED
+import { useTaskStore } from '../../../core/state/taskStore';
+import { useGoalStore } from '../../../core/state/goalStore';
 import {
   TaskActionProposal,
   GoalProgressActionProposal,
   GoalActionProposal,
-  ChatActionProposal, // <-- ADDED
+  ChatActionProposal,
 } from '../../../core/commands/commandTypes';
 import {
   AIError,
@@ -38,8 +38,8 @@ export interface UseChatOrchestratorResult {
   clearGoalProgressProposal: () => void;
   clearGoalProposal: () => void;
   clearError: () => void;
-  confirmProposal: (proposal: ChatActionProposal, messageId: string) => Promise<void>; // <-- ADDED
-  resolvedChatProposals: Set<string>; // <-- ADDED
+  confirmProposal: (proposal: ChatActionProposal, messageId: string) => Promise<void>;
+  resolvedChatProposals: Set<string>;
 }
 
 export function useChatOrchestrator({
@@ -78,32 +78,112 @@ export function useChatOrchestrator({
     setActiveGoalProposal(null);
   }, []);
 
+  // تنفيذ العمليات فور استلام أمر النية بدون عرض بطاقات تأكيد
   const applyCommandResult = useCallback(
-    (result: ChatOrchestrationResult, userMessageId?: string) => {
+    async (result: ChatOrchestrationResult, userMessageId?: string) => {
+      // 1. تنفيذ أوامر المهام مباشرة
       if (result.taskProposal) {
-        result.taskProposal.originatingMessageId = userMessageId;
-        setActiveProposal(result.taskProposal);
+        const proposal = result.taskProposal as any; // تم إضافة as any لحل أخطاء الـ TS
+        proposal.originatingMessageId = userMessageId;
+        const taskStore = useTaskStore.getState();
+
+        try {
+          if (proposal.type === 'existing_task') {
+            if (typeof (taskStore as any).toggleTask === 'function') {
+              await (taskStore as any).toggleTask(proposal.taskId);
+            }
+          } else if (proposal.type === 'new_task_required') {
+            const title = proposal.title || (language === 'ar' ? 'مهمة جديدة' : 'New Task');
+            const date = proposal.date || new Date().toISOString().split('T')[0];
+
+            if (typeof (taskStore as any).createTask === 'function') {
+              await (taskStore as any).createTask(title, 'medium', date);
+            } else if (typeof (taskStore as any).addTask === 'function') {
+              await (taskStore as any).addTask({
+                id: 'task-' + Date.now(),
+                title,
+                priority: 'medium',
+                date,
+                completed: false,
+                createdAt: new Date().toISOString(),
+              });
+            }
+          }
+
+          if (userMessageId) {
+            setResolvedChatProposals((prev) => new Set(prev).add(userMessageId));
+          }
+        } catch (err) {
+          console.error('[useChatOrchestrator] Direct task execution failed:', err);
+        }
       }
+
+      // 2. تحديث تقدم الأهداف مباشرة
       if (result.goalProgressProposal) {
-        result.goalProgressProposal.originatingMessageId = userMessageId;
-        setActiveGoalProgressProposal(result.goalProgressProposal);
+        const goalProposal = result.goalProgressProposal as any; // تم إضافة as any
+        goalProposal.originatingMessageId = userMessageId;
+        const goalStore = useGoalStore.getState();
+
+        try {
+          if (typeof (goalStore as any).updateGoalProgress === 'function') {
+            await (goalStore as any).updateGoalProgress(
+              goalProposal.goalId,
+              goalProposal.progressIncrement
+            );
+          } else if (typeof (goalStore as any).addProgress === 'function') {
+            await (goalStore as any).addProgress(
+              goalProposal.goalId,
+              goalProposal.progressIncrement
+            );
+          }
+
+          if (userMessageId) {
+            setResolvedChatProposals((prev) => new Set(prev).add(userMessageId));
+          }
+        } catch (err) {
+          console.error('[useChatOrchestrator] Direct goal execution failed:', err);
+        }
       }
+
+      // 3. إضافة هدف جديد مباشرة
       if (result.goalProposal) {
-        result.goalProposal.originatingMessageId = userMessageId;
-        setActiveGoalProposal(result.goalProposal);
+        const gProp = result.goalProposal as any; // تم إضافة as any
+        gProp.originatingMessageId = userMessageId;
+        const goalStore = useGoalStore.getState();
+
+        try {
+          if (typeof (goalStore as any).addGoal === 'function') {
+            await (goalStore as any).addGoal({
+              id: 'goal-' + Date.now(),
+              title: gProp.title,
+              category: gProp.category || 'personal',
+              target: gProp.target || 100,
+              current: 0,
+              unit: gProp.unit || '%',
+              deadline: gProp.deadline || new Date().toISOString().split('T')[0],
+            });
+          }
+
+          if (userMessageId) {
+            setResolvedChatProposals((prev) => new Set(prev).add(userMessageId));
+          }
+        } catch (err) {
+          console.error('[useChatOrchestrator] Direct goal creation failed:', err);
+        }
       }
+
+      // 4. تعيين الملاحظة والتوجيه اللحظي
       if (result.commandFeedback) {
         setLastCommandFeedback(result.commandFeedback);
       }
       if (result.commandTargetRoute && onCommandNavigate) {
-        const target = result.commandTargetRoute;
-        onCommandNavigate(target);
+        onCommandNavigate(result.commandTargetRoute);
       }
     },
-    [onCommandNavigate]
+    [language, onCommandNavigate]
   );
 
-  // GATE 23 STEP 3E: confirmProposal implementation
+  // إبقاء الدالة للأمان والتوافق الخلفي للواجهة البرمجية (Backward Compatibility)
   const confirmProposal = useCallback(
     async (proposal: ChatActionProposal, messageId: string) => {
       if (executionState === 'executing') return;
@@ -113,35 +193,34 @@ export function useChatOrchestrator({
 
       try {
         const taskStore = useTaskStore.getState();
+        const p = proposal as any; // تم إضافة as any
 
-        if (proposal.type === 'existing_task') {
-          // Explicit mapping to existing execution paths
+        if (p.type === 'existing_task') {
           if (typeof (taskStore as any).toggleTask === 'function') {
-            await (taskStore as any).toggleTask(proposal.taskId);
+            await (taskStore as any).toggleTask(p.taskId);
           } else {
-             throw new Error("toggleTask method not found in store");
+            throw new Error('toggleTask method not found in store');
           }
-        } else if (proposal.type === 'new_task_required') {
-          const title = proposal.title || (language === 'ar' ? 'مهمة جديدة' : 'New Task');
-          const date = new Date().toISOString().split('T')[0];
-          
+        } else if (p.type === 'new_task_required') {
+          const title = p.title || (language === 'ar' ? 'مهمة جديدة' : 'New Task');
+          const date = p.date || new Date().toISOString().split('T')[0];
+
           if (typeof (taskStore as any).createTask === 'function') {
             await (taskStore as any).createTask(title, 'medium', date);
           } else if (typeof (taskStore as any).addTask === 'function') {
             await (taskStore as any).addTask({
-               id: 'temp-' + Date.now(), 
-               title, 
-               priority: 'medium', 
-               date, 
-               completed: false, 
-               createdAt: new Date().toISOString() 
+              id: 'task-' + Date.now(),
+              title,
+              priority: 'medium',
+              date,
+              completed: false,
+              createdAt: new Date().toISOString(),
             });
           } else {
-             throw new Error("createTask/addTask method not found in store");
+            throw new Error('createTask/addTask method not found in store');
           }
         }
 
-        // On success, mark this specific proposal as resolved to hide it safely
         setResolvedChatProposals((prev) => new Set(prev).add(messageId));
         setExecutionState('idle');
       } catch (e: any) {
@@ -152,8 +231,7 @@ export function useChatOrchestrator({
           messageAr: 'تعذر تنفيذ الاقتراح. يرجى المحاولة مرة أخرى.',
           retryable: true,
         });
-        // Leave proposal active/visible on failure so user can retry
-        setExecutionState('idle'); 
+        setExecutionState('idle');
       }
     },
     [executionState, language]
@@ -248,9 +326,11 @@ export function useChatOrchestrator({
           setExecutionState('idle');
           return { handledAsCommand: false, error: errorResult };
         }
-        
+
         const updatedState = useChatStore.getState();
-        const activeConversation = originConvId ? updatedState.conversations.find(c => c.id === originConvId) : null;
+        const activeConversation = originConvId
+          ? updatedState.conversations.find((c) => c.id === originConvId)
+          : null;
         const context = getContext();
         setExecutionState('generating');
 
@@ -264,7 +344,7 @@ export function useChatOrchestrator({
 
         if (result.handledAsCommand) {
           setExecutionState('idle');
-          applyCommandResult(result, userMessageId);
+          await applyCommandResult(result, userMessageId);
           return result;
         }
 
@@ -313,7 +393,9 @@ export function useChatOrchestrator({
     try {
       const state = useChatStore.getState();
       const originConvId = state.activeConversationId;
-      const activeConversation = originConvId ? state.conversations.find(c => c.id === originConvId) : null;
+      const activeConversation = originConvId
+        ? state.conversations.find((c) => c.id === originConvId)
+        : null;
       const sendMessage = state.sendMessage;
       if (!lastSubmittedMessageRef.current) {
         const lastUserMsg = activeConversation?.messages
@@ -327,7 +409,7 @@ export function useChatOrchestrator({
       const messageToRetry = lastSubmittedMessageRef.current;
       setError(null);
       setExecutionState('generating');
-      
+
       const context = getContext();
       const lastUserMsg = activeConversation?.messages
         .slice()
@@ -344,7 +426,7 @@ export function useChatOrchestrator({
 
       if (result.handledAsCommand) {
         setExecutionState('idle');
-        applyCommandResult(result, lastUserMsg?.id);
+        await applyCommandResult(result, lastUserMsg?.id);
         return result;
       }
 
@@ -411,7 +493,7 @@ export function useChatOrchestrator({
     clearGoalProgressProposal,
     clearGoalProposal,
     clearError,
-    confirmProposal, // <-- ADDED
-    resolvedChatProposals, // <-- ADDED
+    confirmProposal,
+    resolvedChatProposals,
   };
 }
