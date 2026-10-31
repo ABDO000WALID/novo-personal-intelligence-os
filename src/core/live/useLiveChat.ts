@@ -8,6 +8,41 @@ export interface LiveChatMessage {
   isStreaming?: boolean;
 }
 
+// دالة ذكية لتنظيف واستخراج النص سواء كانت الرسالة مكتملة أو أثناء الـ Streaming
+export function sanitizeMessageContent(content: string): string {
+  if (!content) return content;
+  const trimmed = content.trim();
+  
+  // التحقق إذا كان النص يحتوي على هيكل مصفوفة بيانات
+  if (trimmed.startsWith('[{') && trimmed.includes('"text"')) {
+    try {
+      // 1. محاولة فك البيانات بشكل طبيعي (لو الرسالة اكتملت)
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item: any) => item?.text || '').join('');
+      }
+    } catch {
+      // 2. حالة الـ Streaming (البيانات غير مكتملة): تنظيف النص يدوياً لعرضه فورياً
+      let streamingText = content
+        // إزالة أقواس البداية
+        .replace(/^\[\s*\{\s*(?:"type"\s*:\s*"text"\s*,\s*)?"text"\s*:\s*"/, '')
+        // إزالة أقواس النهاية إن وجدت
+        .replace(/"\s*\}?\s*\]?$/, '');
+        
+      // فك تشفير الرموز الخاصة بالمسافات والسطور الجديدة
+      streamingText = streamingText
+        .replace(/\\n/g, '\n')
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\')
+        .replace(/\\r/g, '\r')
+        .replace(/\\t/g, '\t');
+        
+      return streamingText;
+    }
+  }
+  return content;
+}
+
 export function useLiveChat(client: LiveTransportClient) {
   const [messages, setMessages] = useState<LiveChatMessage[]>([]);
   const [connectionState, setConnectionState] = useState<LiveConnectionState>(() => client.getState());
@@ -121,8 +156,14 @@ export function useLiveChat(client: LiveTransportClient) {
 
   const isStreaming = messages.some(m => m.role === 'assistant' && m.isStreaming === true);
 
+  // تنظيف الرسائل قبل إرسالها للواجهة (UI)
+  const sanitizedMessages = messages.map(m => ({
+    ...m,
+    content: m.role === 'assistant' ? sanitizeMessageContent(m.content) : m.content
+  }));
+
   return {
-    messages,
+    messages: sanitizedMessages,
     isStreaming,
     connectionState,
     error,
