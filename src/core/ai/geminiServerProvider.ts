@@ -6,10 +6,9 @@ export class GeminiServerProvider implements AIProvider {
   id = 'gemini-client';
   name = 'Gemini Client API';
   providerType = 'gemini' as const;
-  supportedModels = ['gemini-1.5-flash'];
+  supportedModels = ['gemini-1.5-flash-latest'];
 
   isAvailable(): boolean {
-    // Check if the API key is provided in the environment
     return !!import.meta.env.VITE_GEMINI_API_KEY;
   }
 
@@ -38,7 +37,7 @@ export class GeminiServerProvider implements AIProvider {
     }
 
     const abortController = new AbortController();
-    const timeoutId = setTimeout(() => abortController.abort(), 60000); // 60s timeout
+    const timeoutId = setTimeout(() => abortController.abort(), 60000);
 
     const onAbort = () => abortController.abort();
     if (options?.abortSignal) {
@@ -46,7 +45,6 @@ export class GeminiServerProvider implements AIProvider {
     }
 
     try {
-      // 1. Format conversation history for Gemini (user / model)
       const contents: any[] = [];
       
       if (options?.history && options.history.length > 0) {
@@ -60,13 +58,11 @@ export class GeminiServerProvider implements AIProvider {
         });
       }
 
-      // 2. Add current user prompt
       contents.push({
         role: 'user',
         parts: [{ text: prompt }]
       });
 
-      // 3. Prepare the payload
       const payload: any = {
         contents,
         generationConfig: {
@@ -74,15 +70,14 @@ export class GeminiServerProvider implements AIProvider {
         }
       };
 
-      // 4. Add system instructions (Context)
       if (options?.systemInstruction) {
         payload.systemInstruction = {
           parts: [{ text: options.systemInstruction }]
         };
       }
 
-      // 5. Fetch directly from Google's Generative Language API
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      // تم تعديل اسم الموديل هنا إلى gemini-1.5-flash-latest
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
