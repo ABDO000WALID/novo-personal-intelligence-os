@@ -6,7 +6,7 @@ export class GeminiServerProvider implements AIProvider {
   id = 'gemini-client';
   name = 'Gemini Client API';
   providerType = 'gemini' as const;
-  supportedModels = ['gemini-1.5-flash-latest'];
+  supportedModels = ['gemini-1.5-flash'];
 
   isAvailable(): boolean {
     return !!import.meta.env.VITE_GEMINI_API_KEY;
@@ -76,8 +76,8 @@ export class GeminiServerProvider implements AIProvider {
         };
       }
 
-      // تم تعديل اسم الموديل هنا إلى gemini-1.5-flash-latest
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`, {
+      // رجعنا اسم الموديل لـ gemini-1.5-flash
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
