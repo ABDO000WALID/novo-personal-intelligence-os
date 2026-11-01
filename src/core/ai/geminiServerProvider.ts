@@ -1,22 +1,16 @@
-import {
-  AIResponse,
-  AIRequestOptions,
-  AIError,
-} from './aiTypes';
+import { AIResponse, AIRequestOptions, AIError, AIMessage } from './aiTypes';
 import { AIProvider } from './aiProvider';
 import { NOVOContext } from '../intelligence/intelligenceTypes';
-import { useAuthStore } from '../auth/authStore';
-import { auth } from '../auth/firebase';
-import { signInAnonymously } from 'firebase/auth';
 
 export class GeminiServerProvider implements AIProvider {
-  id = 'gemini-server';
-  name = 'Gemini Server API';
+  id = 'gemini-client';
+  name = 'Gemini Client API';
   providerType = 'gemini' as const;
-  supportedModels = ['gemini-3.8-flash'];
+  supportedModels = ['gemini-1.5-flash'];
 
   isAvailable(): boolean {
-    return true;
+    // Check if the API key is provided in the environment
+    return !!import.meta.env.VITE_GEMINI_API_KEY;
   }
 
   async generateResponse(
@@ -33,8 +27,18 @@ export class GeminiServerProvider implements AIProvider {
       } as AIError;
     }
 
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) {
+      throw {
+        code: 'UNAUTHENTICATED',
+        message: 'Gemini API key is missing. Please add VITE_GEMINI_API_KEY to your environment variables.',
+        messageAr: 'مفتاح Gemini API غير موجود. يرجى إضافته كمتغير بيئة (VITE_GEMINI_API_KEY).',
+        retryable: false,
+      } as AIError;
+    }
+
     const abortController = new AbortController();
-    const timeoutId = setTimeout(() => abortController.abort(), 60000); // 60s timeout for server retries
+    const timeoutId = setTimeout(() => abortController.abort(), 60000); // 60s timeout
 
     const onAbort = () => abortController.abort();
     if (options?.abortSignal) {
@@ -42,43 +46,48 @@ export class GeminiServerProvider implements AIProvider {
     }
 
     try {
-      let token: string | null = null;
-      let user = useAuthStore.getState().user || auth?.currentUser;
-
-      if (!user && auth) {
-        try {
-          const cred = await signInAnonymously(auth);
-          user = cred.user;
-        } catch {
-          // If auto-init anonymous auth fails, proceed; server will cleanly respond with 401
-        }
+      // 1. Format conversation history for Gemini (user / model)
+      const contents: any[] = [];
+      
+      if (options?.history && options.history.length > 0) {
+        options.history.forEach((msg: AIMessage) => {
+          if (msg.role === 'user' || msg.role === 'assistant') {
+            contents.push({
+              role: msg.role === 'assistant' ? 'model' : 'user',
+              parts: [{ text: msg.content }]
+            });
+          }
+        });
       }
 
-      if (user) {
-        try {
-          token = await user.getIdToken();
-        } catch (tokenErr) {
-          console.error('[GeminiServerProvider] Failed to get ID token:', tokenErr);
-        }
-      }
+      // 2. Add current user prompt
+      contents.push({
+        role: 'user',
+        parts: [{ text: prompt }]
+      });
 
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'x-request-id': crypto.randomUUID(),
+      // 3. Prepare the payload
+      const payload: any = {
+        contents,
+        generationConfig: {
+          temperature: 0.7,
+        }
       };
 
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+      // 4. Add system instructions (Context)
+      if (options?.systemInstruction) {
+        payload.systemInstruction = {
+          parts: [{ text: options.systemInstruction }]
+        };
       }
 
-      const response = await fetch('/api/ai/chat', {
+      // 5. Fetch directly from Google's Generative Language API
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
-        headers,
-        body: JSON.stringify({
-          prompt,
-          context: options?.systemInstruction,
-          history: options?.history,
-        }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
         signal: abortController.signal,
       });
 
@@ -86,53 +95,27 @@ export class GeminiServerProvider implements AIProvider {
       const data = await response.json();
 
       if (!response.ok) {
-        const errCode = data?.error?.code || 'REQUEST_FAILED';
-        const errMessage = data?.error?.message || 'Server returned an error.';
-        let retryable = data?.error?.retryable ?? true;
-        let messageAr = data?.error?.messageAr;
-
-        if (response.status === 401 || errCode === 'UNAUTHENTICATED') {
-          throw {
-            code: 'UNAUTHENTICATED',
-            message: errMessage || 'Authentication required to use AI chat.',
-            messageAr: 'يجب تسجيل الدخول لاستخدام المحادثة الذكية.',
-            retryable: false,
-          };
-        } else if (response.status === 429 || errCode === 'RATE_LIMITED') {
-          throw {
-            code: 'RATE_LIMITED',
-            message: errMessage || 'Rate limit exceeded. Please wait a moment.',
-            messageAr: messageAr || 'تم تجاوز حد الطلبات المسموح به. يرجى الانتظار قليلاً ثم المحاولة مرة أخرى.',
-            retryable: true,
-          };
-        } else if (errCode === 'MODEL_NOT_AVAILABLE') {
-          retryable = false;
-          messageAr = messageAr || 'نموذج الذكاء الاصطناعي المحدد غير متاح حالياً. تحقق من إعداد GEMINI_MODEL.';
-        } else if (errCode === 'PROVIDER_UNAVAILABLE') {
-          retryable = true;
-          messageAr = messageAr || 'خدمة الذكاء الاصطناعي تواجه ضغطاً مؤقتاً. حاول مرة أخرى بعد قليل.';
-        } else if (errCode === 'AI_AUTH_ERROR' || errCode === 'INVALID_REQUEST' || errCode === 'INVALID_RESPONSE') {
-          retryable = false;
-        }
-
         throw {
-          code: errCode,
-          message: errMessage,
-          messageAr,
-          retryable,
+          code: 'REQUEST_FAILED',
+          message: data?.error?.message || 'Failed to fetch from Gemini API.',
+          messageAr: 'فشل الاتصال بخوادم Gemini API. ' + (data?.error?.message || ''),
+          retryable: true,
         };
       }
 
-      if (!data || typeof data.text !== 'string' || !data.text.trim()) {
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!text || !text.trim()) {
         throw {
           code: 'INVALID_RESPONSE',
-          message: 'Received empty or invalid response from server.',
+          message: 'Received empty or invalid response from Gemini.',
+          messageAr: 'تم استلام استجابة فارغة أو غير صالحة من Gemini.',
           retryable: false,
         };
       }
 
       return {
-        text: data.text,
+        text: text,
       };
 
     } catch (err: any) {
