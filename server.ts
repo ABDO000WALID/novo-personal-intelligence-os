@@ -85,7 +85,8 @@ function getHealthyModels(availableModels, envModel) {
     fallbacks.push(envModel);
   }
   
-  const preferences = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-2.0-flash'];
+  // حطينا الإصدارات الرسمية الحقيقية فقط
+  const preferences = ['gemini-1.5-flash', 'gemini-1.5-pro'];
   
   for (const pref of preferences) {
     if (healthy.includes(pref) && !fallbacks.includes(pref)) {
@@ -99,7 +100,6 @@ function getHealthyModels(availableModels, envModel) {
     }
   }
   
-  // If no healthy verified models, emergency fallback
   if (fallbacks.length === 0 && availableModels.length > 0) {
     if (envModel && availableModels.includes(envModel)) return [envModel];
     for (const pref of preferences) {
@@ -127,23 +127,19 @@ function unmarkModelProbing(modelName) {
 
 function reportModelFailure(modelName, statusCode, errStr) {
   if (statusCode === 404 || (statusCode === 400 && (errStr.includes('interactions api') || errStr.includes('not support')))) {
-    // Model incompatibility or doesn't exist
     cachedAvailableModels = cachedAvailableModels.filter(m => m !== modelName);
     console.log(`[MODEL HEALTH] model=${modelName} action=removed reason=${statusCode}`);
     return;
   }
   
-  // For 400 bad request (e.g. invalid json), do not penalize model globally
   if (statusCode === 400) {
     console.log(`[MODEL HEALTH] model=${modelName} action=ignored reason=400_BAD_REQUEST`);
     return;
   }
 
-  // 429, 503, 500, network timeouts
   if ([429, 503, 500].includes(statusCode)) {
     const health = modelHealth[modelName] || { state: MODEL_STATE_HEALTHY, consecutiveFailures: 0, cooldownUntil: 0, activeProbes: 0 };
     health.consecutiveFailures++;
-    // Exponential backoff
     const cooldownMs = health.consecutiveFailures === 1 ? 10000 : (health.consecutiveFailures === 2 ? 30000 : 60000);
     health.state = MODEL_STATE_COOLDOWN;
     health.cooldownUntil = Date.now() + cooldownMs;
@@ -158,7 +154,6 @@ function reportModelSuccess(modelName) {
   if (health && health.state !== MODEL_STATE_HEALTHY) {
     console.log(`[MODEL HEALTH] model=${modelName} action=recovered`);
   }
-  // Clear failures and mark healthy
   modelHealth[modelName] = { state: MODEL_STATE_HEALTHY, consecutiveFailures: 0, cooldownUntil: 0, activeProbes: 0 };
 }
 
@@ -190,7 +185,8 @@ async function startServer() {
       }
 
       const availableModels = await discoverAvailableModels(apiKey);
-      const envModel = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+      // عدلنا الديفولت للاسم الصحيح
+      const envModel = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
       
       const modelsToTry = getHealthyModels(availableModels, envModel);
       console.log(`[MODEL ROUTER] req=${requestId} uid=${uid} available=${availableModels.length} healthy=${modelsToTry.length} preferred=${modelsToTry[0] || 'none'}`);
@@ -223,7 +219,7 @@ async function startServer() {
         { role: 'user', parts: [{ text: prompt.trim() }] }
       ];
 
-      const maxAttempts = Math.min(6, modelsToTry.length); // Max attempts bounded by healthy models list length
+      const maxAttempts = Math.min(6, modelsToTry.length);
       let attempt = 1;
       let fallbackIndex = 0;
       let finalError = null;
@@ -241,11 +237,10 @@ async function startServer() {
 
           console.log(`[AI ATTEMPT] requestId=${requestId} uid=${uid} model=${currentModel} attempt=${attempt}`);
           
-          // Basic abort controller
           const abortController = new AbortController();
           const reqCloseHandler = () => abortController.abort();
           req.on('close', reqCloseHandler);
-          const timeoutId = setTimeout(() => abortController.abort(), 60000); // 60s max per request
+          const timeoutId = setTimeout(() => abortController.abort(), 60000);
 
           const response = await ai.models.generateContent({
             model: currentModel,
@@ -254,8 +249,6 @@ async function startServer() {
               systemInstruction: systemInstruction,
               temperature: 0.7,
             }
-            // SDK v0.1+ might support abort signal in future/current depending on version.
-            // If not, it will be silently ignored which is safe.
           });
           
           clearTimeout(timeoutId);
@@ -308,22 +301,18 @@ async function startServer() {
           finalError = { status: statusCode, code: errorCode, message: errorMessage, retryable: isTransient };
 
           if (statusCode === 401 || statusCode === 403) {
-             break; // Stop immediately on auth failure
+             break;
           }
-
           if (statusCode === 400 && !errStr.includes('interactions api')) {
-             // Request malformed, switching models won't help
              break;
           }
 
-          // Move to next model
           fallbackIndex++;
           if (fallbackIndex < modelsToTry.length) {
               attempt++;
               continue;
           }
-          
-          break; // Exhausted fallbacks
+          break;
         }
       }
 
@@ -345,7 +334,6 @@ async function startServer() {
     }
   });
 
-  
   const server = http.createServer(app);
 
   let vite = null;
@@ -365,7 +353,6 @@ async function startServer() {
       console.error('Failed to create Vite server:', err);
     }
   } else {
-    // If production or HMR disabled, serve static directly
     const distPath = path.join(process.cwd(), 'dist');
     if (!fs.existsSync(path.join(distPath, 'index.html'))) {
       console.error('[SERVER ERROR] Production build not found. Missing dist/index.html. Did you run npm run build?');
@@ -381,7 +368,6 @@ async function startServer() {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
 
-  
   setupLiveTransport(server);
   server.on('error', (err) => {
     console.error('[SERVER ERROR]', err);
