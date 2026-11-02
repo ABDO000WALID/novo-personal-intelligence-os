@@ -942,12 +942,14 @@ export class AIOrchestrator {
         mergedOptions
       ) as (AIResponse & { functionCalls?: any[] });
 
-      // === التقاط الإشارة وتحويلها لأمر إضافة مهمة ===
+     // === التقاط الإشارة وتحويلها لأمر إضافة مهمة ===
       if (response.functionCalls && response.functionCalls.length > 0) {
         const createTaskCall = response.functionCalls.find((fc: any) => fc.name === 'create_task');
         
         if (createTaskCall && createTaskCall.args && createTaskCall.args.title) {
           const taskTitle = createTaskCall.args.title;
+          // التعديل: قراءة التاريخ من الذكاء الاصطناعي أو استخدام تاريخ اليوم كاحتياطي
+          const taskDate = createTaskCall.args.date || getLocalDateString(0);
           
           return {
             handledAsCommand: true, 
@@ -955,15 +957,15 @@ export class AIOrchestrator {
               id: `prop-fc-${Date.now()}`,
               originatingMessageId: request.messageId,
               source: 'conversational_ai',
-              type: 'new_task_required', // المفتاح السري اللي بيشغل دالة الإضافة
+              type: 'new_task_required',
               title: taskTitle,
               priority: 'medium',
-              date: getLocalDateString(0),
+              date: taskDate, // استخدام التاريخ الصحيح هنا
               status: 'pending',
             },
             commandFeedback: {
-              ar: `تم إضافة مهمة: "${taskTitle}"`,
-              en: `Task added: "${taskTitle}"`,
+              ar: `تم إضافة مهمة: "${taskTitle}" بتاريخ ${taskDate}`,
+              en: `Task added: "${taskTitle}" on ${taskDate}`,
             },
           };
         }

@@ -196,18 +196,26 @@ async function startServer() {
         { role: 'user', parts: [{ text: prompt.trim() }] }
       ];
 
-      // === التعديل 1: تعريف الأدوات (Tools) ===
+      // === التعديل 1: إعطاء النظام تاريخ اليوم لتفسير "بكرة" ===
+      const todayStr = new Date().toISOString().split('T')[0];
+      const enrichedSystemInstruction = `${systemInstruction}\n[SYSTEM: Today's date is ${todayStr}. Use this to resolve relative dates like "tomorrow".]`;
+
+      // === التعديل 2: إضافة حقل التاريخ في الأداة ===
       const tools = [{
         functionDeclarations: [
           {
             name: 'create_task',
-            description: 'Create a new task in the user\'s daily planner or to-do list. Use this when the user asks you to add a task, remind them of something, or schedule an action.',
+            description: 'Create a new task in the user\'s daily planner or to-do list.',
             parameters: {
               type: 'OBJECT',
               properties: {
                 title: {
                   type: 'STRING',
-                  description: 'The title or main description of the task.'
+                  description: 'The title of the task. Exclude relative time words like "tomorrow" or "today".'
+                },
+                date: {
+                  type: 'STRING',
+                  description: 'The date for the task in YYYY-MM-DD format. Calculate this based on the current date and the user\'s request (e.g. tomorrow).'
                 }
               },
               required: ['title']
@@ -240,16 +248,15 @@ async function startServer() {
             model: currentModel,
             contents,
             config: {
-              systemInstruction: systemInstruction,
+              systemInstruction: enrichedSystemInstruction, // استخدمنا التعليمات بالزمن
               temperature: 0.7,
-              tools: tools, // === التعديل 2: تمرير الأدوات لـ Gemini ===
+              tools: tools,
             }
           });
           
           clearTimeout(timeoutId);
           req.removeListener('close', reqCloseHandler);
 
-          // === التعديل 3: استقبال أوامر الـ Functions ===
           const hasText = !!response.text;
           const hasFunctionCalls = response.functionCalls && response.functionCalls.length > 0;
 
@@ -261,7 +268,7 @@ async function startServer() {
           reportModelSuccess(currentModel);
           
           return res.json({
-            text: response.text || '', // ممكن يرجع فاضي لو بينفذ أمر بس
+            text: response.text || '', 
             functionCalls: hasFunctionCalls ? response.functionCalls : undefined
           });
           
