@@ -10,8 +10,10 @@ export interface TaskState {
   status: StoreStatus;
   error: string | null;
   lastUpdated: number;
-  _unsubscribe: (() => void) | null; // GATE 28: Manage subscription lifecycle
-  initialize: () => Promise<void>;
+  _unsubscribe: (() => void) | null;
+  pendingMutations: number;
+  deferredSnapshot: Task[] | null;
+  initialize: (force?: boolean) => Promise<void>;
   createTask: (title: string, priority?: TaskPriority, date?: string, goalId?: string) => Promise<Task>;
   updateTask: (id: string, updates: Partial<Pick<Task, 'title' | 'priority' | 'date' | 'completed' | 'goalId'>>) => Promise<void>;
   toggleTask: (id: string) => Promise<void>;
@@ -26,9 +28,10 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   error: null,
   lastUpdated: 0,
   _unsubscribe: null,
+  pendingMutations: 0,
+  deferredSnapshot: null,
 
   clearState: () => {
-    // GATE 28: Clean up listener on logout or account switch
     const { _unsubscribe } = get();
     if (_unsubscribe) {
       _unsubscribe();
@@ -38,23 +41,23 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       status: 'idle',
       error: null,
       lastUpdated: Date.now(),
-      _unsubscribe: null
+      _unsubscribe: null,
+      pendingMutations: 0,
+      deferredSnapshot: null
     });
   },
 
-initialize: async () => {
+  initialize: async (force = false) => {
     const authGuard = AuthLifecycle.createGuard();
-    if (get().status === 'loading' || get().status === 'ready') return;
+    if (!force && (get().status === 'loading' || get().status === 'ready')) return;
     
     try {
-      set({ status: 'loading' });
+      if (get().status !== 'ready') set({ status: 'loading' });
       const repo = RepositoryFactory.getTaskRepository();
 
-      // Clean up any rogue subscriptions before starting a new one
       const currentUnsub = get()._unsubscribe;
       if (currentUnsub) currentUnsub();
 
-      // GATE 28: Real-time synchronization
       await new Promise<void>((resolve, reject) => {
         let isFirstSnapshot = true;
 
@@ -65,16 +68,22 @@ initialize: async () => {
             return;
           }
 
-          // GATE 28 BUG FIX: Prevent UI flickering and optimistic state override
-          // Firebase fires twice (cache -> server). Ignore identical redundant snapshots.
+          if (get().pendingMutations > 0) {
+            set({ deferredSnapshot: incomingTasks });
+            if (isFirstSnapshot) {
+              isFirstSnapshot = false;
+              resolve();
+            }
+            return;
+          }
+
           const currentTasks = get().tasks;
           const isIdentical = JSON.stringify(currentTasks) === JSON.stringify(incomingTasks);
 
-          if (!isIdentical || isFirstSnapshot) {
-            set({ tasks: incomingTasks, status: 'ready', error: null, lastUpdated: Date.now() });
+          if (!isIdentical || isFirstSnapshot || force) {
+            set({ tasks: incomingTasks, status: 'ready', error: null, lastUpdated: Date.now(), deferredSnapshot: null });
           }
 
-          // Resolve the initialize promise only on the first load so the UI doesn't hang
           if (isFirstSnapshot) {
             isFirstSnapshot = false;
             resolve();
@@ -107,7 +116,9 @@ initialize: async () => {
     };
 
     if (authGuard.isStale()) return;
-      set((state) => ({
+    
+    set((state) => ({
+      pendingMutations: state.pendingMutations + 1,
       tasks: [newTask, ...state.tasks],
       lastUpdated: Date.now(),
       error: null
@@ -122,9 +133,26 @@ initialize: async () => {
       set((state) => ({
         tasks: state.tasks.filter(t => t.id !== newTask.id),
         error: err.message || 'Failed to create task',
-        lastUpdated: Date.now()
+        lastUpdated: Date.now(),
+        deferredSnapshot: null
       }));
+      get().initialize(true).catch(console.error);
       throw err;
+    } finally {
+      if (!authGuard.isStale()) {
+        set((state) => {
+          const newCount = Math.max(0, state.pendingMutations - 1);
+          const updates: Partial<TaskState> = { pendingMutations: newCount };
+          if (newCount === 0 && state.deferredSnapshot) {
+            if (JSON.stringify(state.tasks) !== JSON.stringify(state.deferredSnapshot)) {
+              updates.tasks = state.deferredSnapshot;
+              updates.lastUpdated = Date.now();
+            }
+            updates.deferredSnapshot = null;
+          }
+          return updates;
+        });
+      }
     }
   },
 
@@ -140,7 +168,9 @@ initialize: async () => {
     const updatedTask = { ...originalTask, ...updates };
 
     if (authGuard.isStale()) return;
-      set((state) => ({
+    
+    set((state) => ({
+      pendingMutations: state.pendingMutations + 1,
       tasks: state.tasks.map(t => (t.id === id ? updatedTask : t)),
       lastUpdated: Date.now(),
       error: null
@@ -153,16 +183,30 @@ initialize: async () => {
       if (authGuard.isStale()) return;
       set((state) => {
         const currentTask = state.tasks.find(t => t.id === id);
-        if (currentTask === updatedTask) {
-          return {
-            tasks: state.tasks.map(t => (t.id === id ? originalTask : t)),
-            error: err.message || 'Failed to update task',
-            lastUpdated: Date.now()
-          };
-        }
-        return { error: err.message || 'Failed to update task', lastUpdated: Date.now() };
+        return {
+          tasks: currentTask === updatedTask ? state.tasks.map(t => (t.id === id ? originalTask : t)) : state.tasks,
+          error: err.message || 'Failed to update task',
+          lastUpdated: Date.now(),
+          deferredSnapshot: null
+        };
       });
+      get().initialize(true).catch(console.error);
       throw err;
+    } finally {
+      if (!authGuard.isStale()) {
+        set((state) => {
+          const newCount = Math.max(0, state.pendingMutations - 1);
+          const patch: Partial<TaskState> = { pendingMutations: newCount };
+          if (newCount === 0 && state.deferredSnapshot) {
+            if (JSON.stringify(state.tasks) !== JSON.stringify(state.deferredSnapshot)) {
+              patch.tasks = state.deferredSnapshot;
+              patch.lastUpdated = Date.now();
+            }
+            patch.deferredSnapshot = null;
+          }
+          return patch;
+        });
+      }
     }
   },
 
@@ -189,7 +233,9 @@ initialize: async () => {
     const originalTask = tasks[originalIndex];
 
     if (authGuard.isStale()) return;
-      set((state) => ({
+    
+    set((state) => ({
+      pendingMutations: state.pendingMutations + 1,
       tasks: state.tasks.filter(t => t.id !== id),
       lastUpdated: Date.now(),
       error: null
@@ -201,22 +247,38 @@ initialize: async () => {
       console.error('[TaskStore] Failed to persist deleted task.', err);
       if (authGuard.isStale()) return;
       set((state) => {
+        const newTasks = [...state.tasks];
         if (!state.tasks.find(t => t.id === id)) {
-          const newTasks = [...state.tasks];
           if (originalIndex >= 0 && originalIndex <= newTasks.length) {
             newTasks.splice(originalIndex, 0, originalTask);
           } else {
             newTasks.push(originalTask);
           }
-          return {
-            tasks: newTasks,
-            error: err.message || 'Failed to delete task',
-            lastUpdated: Date.now()
-          };
         }
-        return { error: err.message || 'Failed to delete task', lastUpdated: Date.now() };
+        return {
+          tasks: newTasks,
+          error: err.message || 'Failed to delete task',
+          lastUpdated: Date.now(),
+          deferredSnapshot: null
+        };
       });
+      get().initialize(true).catch(console.error);
       throw err;
+    } finally {
+      if (!authGuard.isStale()) {
+        set((state) => {
+          const newCount = Math.max(0, state.pendingMutations - 1);
+          const patch: Partial<TaskState> = { pendingMutations: newCount };
+          if (newCount === 0 && state.deferredSnapshot) {
+            if (JSON.stringify(state.tasks) !== JSON.stringify(state.deferredSnapshot)) {
+              patch.tasks = state.deferredSnapshot;
+              patch.lastUpdated = Date.now();
+            }
+            patch.deferredSnapshot = null;
+          }
+          return patch;
+        });
+      }
     }
   }
 }));

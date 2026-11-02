@@ -13,7 +13,7 @@ export class GeminiServerProvider implements AIProvider {
   id = 'gemini-server';
   name = 'Gemini Server API';
   providerType = 'gemini' as const;
-  supportedModels = ['gemini-3.8-flash'];
+  supportedModels = ['gemini-1.5-flash'];
 
   isAvailable(): boolean {
     return true;
@@ -123,7 +123,8 @@ export class GeminiServerProvider implements AIProvider {
         };
       }
 
-      if (!data || typeof data.text !== 'string' || !data.text.trim()) {
+      // === التعديل: السماح بمرور الاستجابة لو مفيهاش نص بس فيها Function Calls ===
+      if (!data || (typeof data.text !== 'string' && !data.functionCalls)) {
         throw {
           code: 'INVALID_RESPONSE',
           message: 'Received empty or invalid response from server.',
@@ -132,8 +133,10 @@ export class GeminiServerProvider implements AIProvider {
       }
 
       return {
-        text: data.text,
-      };
+        text: data.text || '',
+        functionCalls: data.functionCalls, // تمرير أوامر الذكاء الاصطناعي للـ Orchestrator
+      } as AIResponse & { functionCalls?: any[] };
+      // =========================================================================
 
     } catch (err: any) {
       clearTimeout(timeoutId);

@@ -14,7 +14,6 @@ const MODEL_STATE_HEALTHY = 'HEALTHY';
 const MODEL_STATE_COOLDOWN = 'COOLDOWN';
 const MODEL_STATE_PROBING = 'PROBING';
 
-// Record<string, { state: string, consecutiveFailures: number, cooldownUntil: number, activeProbes: number }>
 const modelHealth = {}; 
 
 async function discoverAvailableModels(apiKey) {
@@ -30,7 +29,6 @@ async function discoverAvailableModels(apiKey) {
            if (model.supportedActions && model.supportedActions.includes('generateContent')) {
              const name = model.name.replace('models/', '');
              
-             // Capability filter: standard chat / text reasoning
              if (
                !name.includes('vision') && 
                !name.includes('embedding') && 
@@ -74,7 +72,7 @@ function getHealthyModels(availableModels, envModel) {
            healthy.push(m);
        }
     } else if (health.state === MODEL_STATE_PROBING) {
-       if (health.activeProbes < 1) { // strict concurrency for probes
+       if (health.activeProbes < 1) { 
            healthy.push(m);
        }
     }
@@ -85,7 +83,6 @@ function getHealthyModels(availableModels, envModel) {
     fallbacks.push(envModel);
   }
   
-  // حطينا الإصدارات الرسمية الحقيقية فقط
   const preferences = ['gemini-1.5-flash', 'gemini-1.5-pro'];
   
   for (const pref of preferences) {
@@ -128,14 +125,10 @@ function unmarkModelProbing(modelName) {
 function reportModelFailure(modelName, statusCode, errStr) {
   if (statusCode === 404 || (statusCode === 400 && (errStr.includes('interactions api') || errStr.includes('not support')))) {
     cachedAvailableModels = cachedAvailableModels.filter(m => m !== modelName);
-    console.log(`[MODEL HEALTH] model=${modelName} action=removed reason=${statusCode}`);
     return;
   }
   
-  if (statusCode === 400) {
-    console.log(`[MODEL HEALTH] model=${modelName} action=ignored reason=400_BAD_REQUEST`);
-    return;
-  }
+  if (statusCode === 400) return;
 
   if ([429, 503, 500].includes(statusCode)) {
     const health = modelHealth[modelName] || { state: MODEL_STATE_HEALTHY, consecutiveFailures: 0, cooldownUntil: 0, activeProbes: 0 };
@@ -145,15 +138,10 @@ function reportModelFailure(modelName, statusCode, errStr) {
     health.cooldownUntil = Date.now() + cooldownMs;
     health.activeProbes = 0;
     modelHealth[modelName] = health;
-    console.log(`[MODEL HEALTH] model=${modelName} action=cooldown reason=${statusCode} duration=${cooldownMs}ms consecutive=${health.consecutiveFailures}`);
   }
 }
 
 function reportModelSuccess(modelName) {
-  const health = modelHealth[modelName];
-  if (health && health.state !== MODEL_STATE_HEALTHY) {
-    console.log(`[MODEL HEALTH] model=${modelName} action=recovered`);
-  }
   modelHealth[modelName] = { state: MODEL_STATE_HEALTHY, consecutiveFailures: 0, cooldownUntil: 0, activeProbes: 0 };
 }
 
@@ -172,32 +160,21 @@ async function startServer() {
       const { prompt, context, history } = req.body;
 
       if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
-        return res.status(400).json({
-          error: { code: 'INVALID_REQUEST', message: 'Prompt is required and must be a non-empty string.' }
-        });
+        return res.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'Prompt is required.' } });
       }
 
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
-        return res.status(500).json({
-          error: { code: 'AI_AUTH_ERROR', message: 'GEMINI_API_KEY is not configured on the server.' }
-        });
+        return res.status(500).json({ error: { code: 'AI_AUTH_ERROR', message: 'API Key missing.' } });
       }
 
       const availableModels = await discoverAvailableModels(apiKey);
-      // عدلنا الديفولت للاسم الصحيح
       const envModel = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-      
       const modelsToTry = getHealthyModels(availableModels, envModel);
-      console.log(`[MODEL ROUTER] req=${requestId} uid=${uid} available=${availableModels.length} healthy=${modelsToTry.length} preferred=${modelsToTry[0] || 'none'}`);
 
       if (modelsToTry.length === 0) {
         return res.status(503).json({
-          error: { 
-            code: 'PROVIDER_UNAVAILABLE', 
-            message: 'All AI models are currently on cooldown due to high demand. Please try again.',
-            retryable: true
-          }
+          error: { code: 'PROVIDER_UNAVAILABLE', message: 'All AI models are currently on cooldown.', retryable: true }
         });
       }
 
@@ -219,6 +196,26 @@ async function startServer() {
         { role: 'user', parts: [{ text: prompt.trim() }] }
       ];
 
+      // === التعديل 1: تعريف الأدوات (Tools) ===
+      const tools = [{
+        functionDeclarations: [
+          {
+            name: 'create_task',
+            description: 'Create a new task in the user\'s daily planner or to-do list. Use this when the user asks you to add a task, remind them of something, or schedule an action.',
+            parameters: {
+              type: 'OBJECT',
+              properties: {
+                title: {
+                  type: 'STRING',
+                  description: 'The title or main description of the task.'
+                }
+              },
+              required: ['title']
+            }
+          }
+        ]
+      }];
+
       const maxAttempts = Math.min(6, modelsToTry.length);
       let attempt = 1;
       let fallbackIndex = 0;
@@ -230,12 +227,9 @@ async function startServer() {
         
         try {
           if (req.socket.destroyed) {
-            console.log(`[AI REQUEST] id=${requestId} status=ABORTED duration=${Date.now() - startTime}ms`);
             unmarkModelProbing(currentModel);
             return;
           }
-
-          console.log(`[AI ATTEMPT] requestId=${requestId} uid=${uid} model=${currentModel} attempt=${attempt}`);
           
           const abortController = new AbortController();
           const reqCloseHandler = () => abortController.abort();
@@ -248,62 +242,58 @@ async function startServer() {
             config: {
               systemInstruction: systemInstruction,
               temperature: 0.7,
+              tools: tools, // === التعديل 2: تمرير الأدوات لـ Gemini ===
             }
           });
           
           clearTimeout(timeoutId);
           req.removeListener('close', reqCloseHandler);
 
-          if (!response || !response.text) {
+          // === التعديل 3: استقبال أوامر الـ Functions ===
+          const hasText = !!response.text;
+          const hasFunctionCalls = response.functionCalls && response.functionCalls.length > 0;
+
+          if (!response || (!hasText && !hasFunctionCalls)) {
              throw new Error('INVALID_RESPONSE');
           }
 
           unmarkModelProbing(currentModel);
           reportModelSuccess(currentModel);
-          console.log(`[AI SUCCESS] requestId=${requestId} uid=${uid} model=${currentModel} duration=${Date.now() - startTime}ms`);
+          
           return res.json({
-            text: response.text
+            text: response.text || '', // ممكن يرجع فاضي لو بينفذ أمر بس
+            functionCalls: hasFunctionCalls ? response.functionCalls : undefined
           });
           
         } catch (err) {
           unmarkModelProbing(currentModel);
           const errStr = String(err).toLowerCase();
-          const duration = Date.now() - startTime;
           
           let isTransient = false;
           let statusCode = 500;
           let errorCode = 'AI_PROVIDER_ERROR';
-          let errorMessage = 'An internal error occurred with the AI provider.';
+          let errorMessage = 'An internal error occurred.';
           
           if (err.status === 400 || errStr.includes('invalid_argument') || errStr.includes('400')) {
-             statusCode = 400; errorCode = 'INVALID_ARGUMENT'; errorMessage = 'Model is incompatible or request is malformed.';
-          } else if (err.status === 404 || errStr.includes('404') || errStr.includes('not found') || errStr.includes('is no longer available')) {
-             statusCode = 404; errorCode = 'MODEL_NOT_AVAILABLE'; errorMessage = 'The configured AI model is currently unavailable.';
-          } else if (err.status === 401 || err.status === 403 || errStr.includes('401') || errStr.includes('403') || errStr.includes('auth')) {
-             statusCode = 401; errorCode = 'AI_AUTH_ERROR'; errorMessage = 'AI provider authentication failed.';
-          } else if (err.status === 503 || errStr.includes('503') || errStr.includes('high demand') || errStr.includes('unavailable') || errStr.includes('overloaded')) {
-             isTransient = true;
-             statusCode = 503; errorCode = 'PROVIDER_UNAVAILABLE'; errorMessage = 'The AI model is currently experiencing high demand. Please try again later.';
-          } else if (err.status === 429 || errStr.includes('429') || errStr.includes('quota') || errStr.includes('rate')) {
-             isTransient = true; 
-             statusCode = 429; errorCode = 'RATE_LIMITED'; errorMessage = 'Rate limit exceeded.';
-          } else if (err.name === 'AbortError' || errStr.includes('abort') || errStr.includes('fetch') || errStr.includes('network') || errStr.includes('econnrefused') || errStr.includes('etimedout') || errStr.includes('timeout')) {
-             isTransient = true;
-             statusCode = 503; errorCode = 'NETWORK_ERROR'; errorMessage = 'Network or timeout error contacting AI provider.';
+             statusCode = 400; errorCode = 'INVALID_ARGUMENT'; errorMessage = 'Model is incompatible.';
+          } else if (err.status === 404 || errStr.includes('404') || errStr.includes('not found')) {
+             statusCode = 404; errorCode = 'MODEL_NOT_AVAILABLE';
+          } else if (err.status === 401 || err.status === 403 || errStr.includes('401') || errStr.includes('auth')) {
+             statusCode = 401; errorCode = 'AI_AUTH_ERROR';
+          } else if (err.status === 503 || errStr.includes('503') || errStr.includes('high demand') || errStr.includes('overloaded')) {
+             isTransient = true; statusCode = 503; errorCode = 'PROVIDER_UNAVAILABLE';
+          } else if (err.status === 429 || errStr.includes('429') || errStr.includes('quota')) {
+             isTransient = true; statusCode = 429; errorCode = 'RATE_LIMITED';
+          } else if (err.name === 'AbortError' || errStr.includes('timeout') || errStr.includes('network')) {
+             isTransient = true; statusCode = 503; errorCode = 'NETWORK_ERROR';
           } else if (errStr.includes('invalid_response')) {
-             statusCode = 500; errorCode = 'INVALID_RESPONSE'; errorMessage = 'Model returned an empty response.';
+             statusCode = 500; errorCode = 'INVALID_RESPONSE';
           }
-
-          console.log(`[AI ATTEMPT] requestId=${requestId} uid=${uid} model=${currentModel} attempt=${attempt} status=${statusCode} duration=${duration}ms`);
 
           reportModelFailure(currentModel, statusCode, errStr);
-
           finalError = { status: statusCode, code: errorCode, message: errorMessage, retryable: isTransient };
 
-          if (statusCode === 401 || statusCode === 403) {
-             break;
-          }
-          if (statusCode === 400 && !errStr.includes('interactions api')) {
+          if (statusCode === 401 || statusCode === 403 || (statusCode === 400 && !errStr.includes('interactions api'))) {
              break;
           }
 
@@ -316,13 +306,11 @@ async function startServer() {
         }
       }
 
-      console.log(`[AI REQUEST] id=${requestId} uid=${uid} status=FAILED finalCode=${finalError ? finalError.code : 'UNKNOWN'} duration=${Date.now() - startTime}ms`);
       return res.status(finalError ? finalError.status : 500).json({
         error: { 
           code: finalError ? finalError.code : 'SERVER_ERROR', 
           message: finalError ? finalError.message : 'Unknown error', 
-          retryable: finalError ? finalError.retryable : false,
-          messageAr: (finalError && finalError.code === 'PROVIDER_UNAVAILABLE') ? 'خدمة الذكاء الاصطناعي غير متاحة مؤقتاً بسبب ضغط على المزود. حاول مرة أخرى بعد قليل.' : undefined
+          retryable: finalError ? finalError.retryable : false
         }
       });
 
@@ -335,33 +323,25 @@ async function startServer() {
   });
 
   const server = http.createServer(app);
-
   let vite = null;
+
   if (process.env.NODE_ENV !== 'production') {
     try {
       vite = await createViteServer({
-        server: { 
-          middlewareMode: true,
-          hmr: { server }
-        },
+        server: { middlewareMode: true, hmr: { server } },
         appType: 'spa',
       });
-      app.use((req, res, next) => {
-          vite.middlewares(req, res, next);
-      });
+      app.use((req, res, next) => { vite.middlewares(req, res, next); });
     } catch (err) {
       console.error('Failed to create Vite server:', err);
     }
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     if (!fs.existsSync(path.join(distPath, 'index.html'))) {
-      console.error('[SERVER ERROR] Production build not found. Missing dist/index.html. Did you run npm run build?');
       process.exit(1);
     }
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
   }
 
   server.listen(PORT, '0.0.0.0', () => {
@@ -369,9 +349,6 @@ async function startServer() {
   });
 
   setupLiveTransport(server);
-  server.on('error', (err) => {
-    console.error('[SERVER ERROR]', err);
-  });
 }
 
 startServer();

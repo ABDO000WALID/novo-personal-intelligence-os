@@ -940,9 +940,37 @@ export class AIOrchestrator {
         trimmed,
         request.context,
         mergedOptions
-      );
+      ) as (AIResponse & { functionCalls?: any[] });
 
-      if (!response || typeof response.text !== 'string' || !response.text.trim()) {
+      // === التقاط الإشارة وتحويلها لأمر إضافة مهمة ===
+      if (response.functionCalls && response.functionCalls.length > 0) {
+        const createTaskCall = response.functionCalls.find((fc: any) => fc.name === 'create_task');
+        
+        if (createTaskCall && createTaskCall.args && createTaskCall.args.title) {
+          const taskTitle = createTaskCall.args.title;
+          
+          return {
+            handledAsCommand: true, 
+            taskProposal: {
+              id: `prop-fc-${Date.now()}`,
+              originatingMessageId: request.messageId,
+              source: 'conversational_ai',
+              type: 'new_task_required', // المفتاح السري اللي بيشغل دالة الإضافة
+              title: taskTitle,
+              priority: 'medium',
+              date: getLocalDateString(0),
+              status: 'pending',
+            },
+            commandFeedback: {
+              ar: `تم إضافة مهمة: "${taskTitle}"`,
+              en: `Task added: "${taskTitle}"`,
+            },
+          };
+        }
+      }
+
+      // لو مفيش نص ومفيش أوامر
+      if (!response || ((typeof response.text !== 'string' || !response.text.trim()) && !response.functionCalls)) {
         return {
           handledAsCommand: false,
           error: {
