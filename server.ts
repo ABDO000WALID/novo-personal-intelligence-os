@@ -199,30 +199,31 @@ async function startServer() {
       const todayStr = new Date().toISOString().split('T')[0];
       const enrichedSystemInstruction = `${systemInstruction}\n[SYSTEM: Today's date is ${todayStr}. Use this to resolve relative dates like "tomorrow".]`;
 
-      // === التعديل 2: استخدام كلاس Type للتعريفات عشان جوجل يقبلها ===
-      const tools = [{
-        functionDeclarations: [
-          {
-            name: 'create_task',
-            description: 'Create a new task in the user\'s daily planner or to-do list.',
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                title: {
-                  type: Type.STRING,
-                  description: 'The title of the task. Exclude relative time words like "tomorrow" or "today".'
+      // === التعديل السليم للأداة ===
+      const tools = [
+        {
+          functionDeclarations: [
+            {
+              name: "create_task",
+              description: "Create a new task in the user's daily planner.",
+              parameters: {
+                type: "OBJECT",
+                properties: {
+                  title: {
+                    type: "STRING",
+                    description: "The task title (exclude words like tomorrow/today)."
+                  },
+                  date: {
+                    type: "STRING",
+                    description: "Task date in YYYY-MM-DD format."
+                  }
                 },
-                date: {
-                  type: Type.STRING,
-                  description: 'The date for the task in YYYY-MM-DD format. Calculate this based on the current date and the user\'s request (e.g. tomorrow).'
-                }
-              },
-              required: ['title']
+                required: ["title", "date"] // خلينا التاريخ مطلوب عشان ميستهبلش
+              }
             }
-          }
-        ]
-      }];
-
+          ]
+        }
+      ];
       const maxAttempts = Math.min(6, modelsToTry.length);
       let attempt = 1;
       let fallbackIndex = 0;

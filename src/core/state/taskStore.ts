@@ -49,10 +49,12 @@ export const useTaskStore = create<TaskState>((set, get) => ({
 
   initialize: async (force = false) => {
     const authGuard = AuthLifecycle.createGuard();
+    // منع التهيئة المزدوجة اللي بتعمل الـ Bounce
     if (!force && (get().status === 'loading' || get().status === 'ready')) return;
     
     try {
-      if (get().status !== 'ready') set({ status: 'loading' });
+      // شلنا السطر اللي كان بيعمل status: loading لو كان ready، عشان نحافظ على الـ UI ناعم
+      if (get().status === 'idle') set({ status: 'loading' });
       const repo = RepositoryFactory.getTaskRepository();
 
       const currentUnsub = get()._unsubscribe;
