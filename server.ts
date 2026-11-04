@@ -5,7 +5,7 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai'; // التعديل 1: استيراد كلاس Type
 
 let cachedAvailableModels = [];
 let modelDiscoveryPromise = null;
@@ -196,25 +196,24 @@ async function startServer() {
         { role: 'user', parts: [{ text: prompt.trim() }] }
       ];
 
-      // === التعديل 1: إعطاء النظام تاريخ اليوم لتفسير "بكرة" ===
       const todayStr = new Date().toISOString().split('T')[0];
       const enrichedSystemInstruction = `${systemInstruction}\n[SYSTEM: Today's date is ${todayStr}. Use this to resolve relative dates like "tomorrow".]`;
 
-      // === التعديل 2: إضافة حقل التاريخ في الأداة ===
+      // === التعديل 2: استخدام كلاس Type للتعريفات عشان جوجل يقبلها ===
       const tools = [{
         functionDeclarations: [
           {
             name: 'create_task',
             description: 'Create a new task in the user\'s daily planner or to-do list.',
             parameters: {
-              type: 'OBJECT',
+              type: Type.OBJECT,
               properties: {
                 title: {
-                  type: 'STRING',
+                  type: Type.STRING,
                   description: 'The title of the task. Exclude relative time words like "tomorrow" or "today".'
                 },
                 date: {
-                  type: 'STRING',
+                  type: Type.STRING,
                   description: 'The date for the task in YYYY-MM-DD format. Calculate this based on the current date and the user\'s request (e.g. tomorrow).'
                 }
               },
@@ -248,7 +247,7 @@ async function startServer() {
             model: currentModel,
             contents,
             config: {
-              systemInstruction: enrichedSystemInstruction, // استخدمنا التعليمات بالزمن
+              systemInstruction: enrichedSystemInstruction,
               temperature: 0.7,
               tools: tools,
             }
@@ -273,6 +272,9 @@ async function startServer() {
           });
           
         } catch (err) {
+          // === التعديل 3: طباعة الخطأ الحقيقي في اللوجز عشان ميبقاش مخفي ===
+          console.error(`[AI REQUEST ${requestId}] Gemini API Real Error:`, err);
+          
           unmarkModelProbing(currentModel);
           const errStr = String(err).toLowerCase();
           
@@ -282,7 +284,7 @@ async function startServer() {
           let errorMessage = 'An internal error occurred.';
           
           if (err.status === 400 || errStr.includes('invalid_argument') || errStr.includes('400')) {
-             statusCode = 400; errorCode = 'INVALID_ARGUMENT'; errorMessage = 'Model is incompatible.';
+             statusCode = 400; errorCode = 'INVALID_ARGUMENT'; errorMessage = 'Model is incompatible or schema is invalid.';
           } else if (err.status === 404 || errStr.includes('404') || errStr.includes('not found')) {
              statusCode = 404; errorCode = 'MODEL_NOT_AVAILABLE';
           } else if (err.status === 401 || err.status === 403 || errStr.includes('401') || errStr.includes('auth')) {
