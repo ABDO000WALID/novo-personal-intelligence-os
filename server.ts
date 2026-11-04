@@ -5,34 +5,39 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI, Type } from '@google/genai'; // التعديل 1: استيراد كلاس Type
+import { GoogleGenAI } from '@google/genai';
 
-let cachedAvailableModels = [];
-let modelDiscoveryPromise = null;
+let cachedAvailableModels: string[] = [];
+let modelDiscoveryPromise: Promise<string[]> | null = null;
 
 const MODEL_STATE_HEALTHY = 'HEALTHY';
 const MODEL_STATE_COOLDOWN = 'COOLDOWN';
 const MODEL_STATE_PROBING = 'PROBING';
 
-const modelHealth = {}; 
+const modelHealth: Record<string, any> = {}; 
 
-async function discoverAvailableModels(apiKey) {
+async function discoverAvailableModels(apiKey: string) {
   if (cachedAvailableModels.length > 0) return cachedAvailableModels;
   if (!modelDiscoveryPromise) {
     modelDiscoveryPromise = (async () => {
       try {
         const ai = new GoogleGenAI({ apiKey });
         const response = await ai.models.list();
-        const available = [];
+        const available: string[] = [];
         
         for await (const model of response) {
            if (model.supportedActions && model.supportedActions.includes('generateContent')) {
-             const name = model.name.replace('models/', '');
+             const name = (model.name || '').replace('models/', '');
              
+             // استبعاد الموديلات البطيئة أو التجريبية أو غير المتوافقة مع الأدوات
              if (
                !name.includes('vision') && 
                !name.includes('embedding') && 
                !name.includes('tts') &&
+               !name.includes('image') &&
+               !name.includes('audio') &&
+               !name.includes('thinking') &&
+               !name.includes('exp') &&
                (name.includes('flash') || name.includes('pro'))
              ) {
                available.push(name);
@@ -45,19 +50,19 @@ async function discoverAvailableModels(apiKey) {
         return available;
       } catch (err) {
         console.error('[MODEL DISCOVERY ERROR]', err);
-        return [];
+        return ['gemini-2.5-flash', 'gemini-2.0-flash'];
       }
     })();
   }
   return modelDiscoveryPromise;
 }
 
-function getHealthyModels(availableModels, envModel) {
+function getHealthyModels(availableModels: string[], envModel?: string) {
   const now = Date.now();
-  const healthy = [];
+  const healthy: string[] = [];
   
   for (const m of availableModels) {
-    let health = modelHealth[m];
+    const health = modelHealth[m];
     if (!health) {
        healthy.push(m);
        continue;
@@ -78,12 +83,13 @@ function getHealthyModels(availableModels, envModel) {
     }
   }
 
-  const fallbacks = [];
+  const fallbacks: string[] = [];
+  // أولوية قصوى للموديلات السريعة والمستقرة
+  const preferences = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.5-pro'];
+  
   if (envModel && healthy.includes(envModel)) {
     fallbacks.push(envModel);
   }
-  
-  const preferences = ['gemini-1.5-flash', 'gemini-1.5-pro'];
   
   for (const pref of preferences) {
     if (healthy.includes(pref) && !fallbacks.includes(pref)) {
@@ -97,32 +103,28 @@ function getHealthyModels(availableModels, envModel) {
     }
   }
   
-  if (fallbacks.length === 0 && availableModels.length > 0) {
-    if (envModel && availableModels.includes(envModel)) return [envModel];
-    for (const pref of preferences) {
-      if (availableModels.includes(pref)) return [pref];
-    }
-    return [availableModels[0]];
+  if (fallbacks.length === 0) {
+    return ['gemini-2.5-flash', 'gemini-2.0-flash'];
   }
   
   return fallbacks;
 }
 
-function markModelProbing(modelName) {
+function markModelProbing(modelName: string) {
   const health = modelHealth[modelName];
   if (health && health.state === MODEL_STATE_PROBING) {
     health.activeProbes++;
   }
 }
 
-function unmarkModelProbing(modelName) {
+function unmarkModelProbing(modelName: string) {
   const health = modelHealth[modelName];
   if (health && health.state === MODEL_STATE_PROBING) {
     health.activeProbes = Math.max(0, health.activeProbes - 1);
   }
 }
 
-function reportModelFailure(modelName, statusCode, errStr) {
+function reportModelFailure(modelName: string, statusCode: number, errStr: string) {
   if (statusCode === 404 || (statusCode === 400 && (errStr.includes('interactions api') || errStr.includes('not support')))) {
     cachedAvailableModels = cachedAvailableModels.filter(m => m !== modelName);
     return;
@@ -141,7 +143,7 @@ function reportModelFailure(modelName, statusCode, errStr) {
   }
 }
 
-function reportModelSuccess(modelName) {
+function reportModelSuccess(modelName: string) {
   modelHealth[modelName] = { state: MODEL_STATE_HEALTHY, consecutiveFailures: 0, cooldownUntil: 0, activeProbes: 0 };
 }
 
@@ -153,8 +155,6 @@ async function startServer() {
 
   app.post('/api/ai/chat', requireAuth, rateLimiter, async (req: AuthenticatedRequest, res) => {
     const requestId = req.headers['x-request-id'] || crypto.randomUUID();
-    const uid = req.user?.uid || 'unknown';
-    const startTime = Date.now();
     
     try {
       const { prompt, context, history } = req.body;
@@ -169,65 +169,82 @@ async function startServer() {
       }
 
       const availableModels = await discoverAvailableModels(apiKey);
-      const envModel = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+      const envModel = process.env.GEMINI_MODEL;
       const modelsToTry = getHealthyModels(availableModels, envModel);
-
-      if (modelsToTry.length === 0) {
-        return res.status(503).json({
-          error: { code: 'PROVIDER_UNAVAILABLE', message: 'All AI models are currently on cooldown.', retryable: true }
-        });
-      }
 
       const ai = new GoogleGenAI({ apiKey });
       const systemInstruction = context || 'You are NOVO, a productivity AI assistant.';
       
-      let formattedHistory = [];
+      // بناء سجل محادثة سليم يمنع تكرار الأوامر السابقة أو تعطل المحادثة عند غياب رد المساعد
+      const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
       if (Array.isArray(history)) {
-        formattedHistory = history
-          .filter(msg => msg && (msg.role === 'user' || msg.role === 'model' || msg.role === 'assistant'))
-          .map(msg => ({
-            role: msg.role === 'assistant' ? 'model' : msg.role,
-            parts: [{ text: msg.content || '' }]
-          }));
+        for (const msg of history) {
+          if (!msg || typeof msg.content !== 'string' || !msg.content.trim()) continue;
+          if (msg.role !== 'user' && msg.role !== 'model' && msg.role !== 'assistant') continue;
+          
+          const mappedRole = msg.role === 'assistant' ? 'model' : msg.role;
+          const text = msg.content.trim();
+
+          // إذا كانت الرسالة الأخيرة في التاريخ مطابقة للرسالة الحالية، نتجاهلها لمنع التكرار
+          if (mappedRole === 'user' && text === prompt.trim()) continue;
+
+          // إذا جاءت رسالتان متتاليتان من المستخدم (بسبب تنفيذ أمر سابق بدون فقاعة رد)، نضع رداً فاصلاً
+          if (contents.length > 0 && contents[contents.length - 1].role === 'user' && mappedRole === 'user') {
+            contents.push({
+              role: 'model',
+              parts: [{ text: 'تم تنفيذ طلبك السابق بنجاح.' }]
+            });
+          }
+
+          contents.push({
+            role: mappedRole,
+            parts: [{ text }]
+          });
+        }
       }
 
-      const contents = [
-        ...formattedHistory,
-        { role: 'user', parts: [{ text: prompt.trim() }] }
-      ];
+      // إذا كان آخر عنصر في التاريخ هو أيضاً من المستخدم، نضع رداً فاصلاً قبل الرسالة الجديدة
+      if (contents.length > 0 && contents[contents.length - 1].role === 'user') {
+        contents.push({
+          role: 'model',
+          parts: [{ text: 'تم تنفيذ طلبك السابق بنجاح.' }]
+        });
+      }
+
+      contents.push({ role: 'user', parts: [{ text: prompt.trim() }] });
 
       const todayStr = new Date().toISOString().split('T')[0];
-      const enrichedSystemInstruction = `${systemInstruction}\n[SYSTEM: Today's date is ${todayStr}. Use this to resolve relative dates like "tomorrow".]`;
+      const enrichedSystemInstruction = `${systemInstruction}\n[SYSTEM: Today's date is ${todayStr}. Only call create_task if the user's latest message explicitly asks to add/create a task. For normal conversation, reply naturally in Arabic without calling tools.]`;
 
-      // === التعديل السليم للأداة ===
       const tools = [
         {
           functionDeclarations: [
             {
               name: "create_task",
-              description: "Create a new task in the user's daily planner.",
+              description: "Create a new task in the user's daily planner ONLY when explicitly requested in the latest user message.",
               parameters: {
                 type: "OBJECT",
                 properties: {
                   title: {
                     type: "STRING",
-                    description: "The task title (exclude words like tomorrow/today)."
+                    description: "The task title (exclude relative date words like tomorrow/today/بكرة/اليوم)."
                   },
                   date: {
                     type: "STRING",
                     description: "Task date in YYYY-MM-DD format."
                   }
                 },
-                required: ["title", "date"] // خلينا التاريخ مطلوب عشان ميستهبلش
+                required: ["title", "date"]
               }
             }
           ]
         }
       ];
-      const maxAttempts = Math.min(6, modelsToTry.length);
+
+      const maxAttempts = Math.min(3, modelsToTry.length);
       let attempt = 1;
       let fallbackIndex = 0;
-      let finalError = null;
+      let finalError: any = null;
 
       while (attempt <= maxAttempts && fallbackIndex < modelsToTry.length) {
         const currentModel = modelsToTry[fallbackIndex];
@@ -238,11 +255,6 @@ async function startServer() {
             unmarkModelProbing(currentModel);
             return;
           }
-          
-          const abortController = new AbortController();
-          const reqCloseHandler = () => abortController.abort();
-          req.on('close', reqCloseHandler);
-          const timeoutId = setTimeout(() => abortController.abort(), 60000);
 
           const response = await ai.models.generateContent({
             model: currentModel,
@@ -250,12 +262,9 @@ async function startServer() {
             config: {
               systemInstruction: enrichedSystemInstruction,
               temperature: 0.7,
-              tools: tools,
+              tools: tools as any,
             }
           });
-          
-          clearTimeout(timeoutId);
-          req.removeListener('close', reqCloseHandler);
 
           const hasText = !!response.text;
           const hasFunctionCalls = response.functionCalls && response.functionCalls.length > 0;
@@ -272,9 +281,8 @@ async function startServer() {
             functionCalls: hasFunctionCalls ? response.functionCalls : undefined
           });
           
-        } catch (err) {
-          // === التعديل 3: طباعة الخطأ الحقيقي في اللوجز عشان ميبقاش مخفي ===
-          console.error(`[AI REQUEST ${requestId}] Gemini API Real Error:`, err);
+        } catch (err: any) {
+          console.error(`[AI REQUEST ${requestId}] Model ${currentModel} Error:`, err);
           
           unmarkModelProbing(currentModel);
           const errStr = String(err).toLowerCase();
@@ -303,7 +311,7 @@ async function startServer() {
           reportModelFailure(currentModel, statusCode, errStr);
           finalError = { status: statusCode, code: errorCode, message: errorMessage, retryable: isTransient };
 
-          if (statusCode === 401 || statusCode === 403 || (statusCode === 400 && !errStr.includes('interactions api'))) {
+          if (statusCode === 401 || statusCode === 403) {
              break;
           }
 
@@ -333,7 +341,7 @@ async function startServer() {
   });
 
   const server = http.createServer(app);
-  let vite = null;
+  let vite: any = null;
 
   if (process.env.NODE_ENV !== 'production') {
     try {

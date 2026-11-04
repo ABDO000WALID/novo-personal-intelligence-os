@@ -866,57 +866,8 @@ export class AIOrchestrator {
       };
     }
 
-    // 2.5. Gate 18.2: Conversational Intent Detection (AI-assisted fallback for plausibly action-shaped inputs)
-    if (isPlausiblyActionShaped(trimmed)) {
-      const isArabic = /[\u0600-\u06FF]/.test(trimmed);
-      const classification = await classifyConversationalIntent({
-        message: trimmed,
-        language: request.language || (isArabic ? 'ar' : 'en'),
-        activeProvider,
-        context: request.context,
-        timeoutMs: 4000,
-      });
-
-      if (classification.isValid && classification.intent === 'create_task') {
-        const proposalId = `prop-ai-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-        return {
-          handledAsCommand: true,
-          taskProposal: {
-            id: proposalId,
-            originatingMessageId: request.messageId,
-            source: 'conversational_ai',
-            title: classification.extractedTitle,
-            priority: classification.suggestedPriority,
-            date: classification.suggestedDate || getLocalDateString(0),
-            status: 'pending',
-          },
-          commandFeedback: {
-            ar: `مقترح إضافة مهمة: "${classification.extractedTitle}"`,
-            en: `Proposed Task: "${classification.extractedTitle}"`,
-          },
-        };
-      }
-
-      if (classification.isValid && classification.intent === 'create_goal') {
-        const proposalId = `gcreate-ai-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-        return {
-          handledAsCommand: true,
-          goalProposal: {
-            id: proposalId,
-            originatingMessageId: request.messageId,
-            title: classification.extractedTitle,
-            description: '',
-            initialProgress: 0,
-            status: 'pending',
-          },
-          commandFeedback: {
-            ar: `مقترح إضافة هدف: "${classification.extractedTitle}"`,
-            en: `Proposed Goal: "${classification.extractedTitle}"`,
-          },
-        };
-      }
-      // If classification is 'none', low confidence, or invalid -> fails closed to normal conversational chat below
-    }
+    // تم إيقاف Gate 18.2 (classifyConversationalIntent) لمنع إرسال طلبين لـ Gemini في كل رسالة
+    // والاعتماد مباشرة على Native Function Calling في الخطوة 4.
 
     // 3. Prepare AI Request Context
     const history = prepareConversationHistory(
@@ -942,14 +893,15 @@ export class AIOrchestrator {
         mergedOptions
       ) as (AIResponse & { functionCalls?: any[] });
 
-     // === التقاط الإشارة وتحويلها لأمر إضافة مهمة ===
+      // === التقاط الإشارة وتحويلها لأمر إضافة مهمة ===
       if (response.functionCalls && response.functionCalls.length > 0) {
         const createTaskCall = response.functionCalls.find((fc: any) => fc.name === 'create_task');
         
         if (createTaskCall && createTaskCall.args && createTaskCall.args.title) {
           const taskTitle = createTaskCall.args.title;
-          // التعديل: قراءة التاريخ من الذكاء الاصطناعي أو استخدام تاريخ اليوم كاحتياطي
           const taskDate = createTaskCall.args.date || getLocalDateString(0);
+          const feedbackAr = `تم إضافة مهمة: "${taskTitle}" بتاريخ ${taskDate}`;
+          const feedbackEn = `Task added: "${taskTitle}" on ${taskDate}`;
           
           return {
             handledAsCommand: true, 
@@ -960,12 +912,16 @@ export class AIOrchestrator {
               type: 'new_task_required',
               title: taskTitle,
               priority: 'medium',
-              date: taskDate, // استخدام التاريخ الصحيح هنا
+              date: taskDate,
               status: 'pending',
             },
             commandFeedback: {
-              ar: `تم إضافة مهمة: "${taskTitle}" بتاريخ ${taskDate}`,
-              en: `Task added: "${taskTitle}" on ${taskDate}`,
+              ar: feedbackAr,
+              en: feedbackEn,
+            },
+            aiResponse: {
+              ...response,
+              text: response.text && response.text.trim() ? response.text : feedbackAr,
             },
           };
         }
